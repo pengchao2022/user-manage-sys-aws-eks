@@ -4,11 +4,6 @@ resource "random_password" "db_password" {
   special = false
 }
 
-# 获取 OIDC provider 数据
-data "aws_iam_openid_connect_provider" "cluster" {
-  url = module.eks.cluster_oidc_issuer_url
-}
-
 # VPC Module
 module "vpc" {
   source = "./vpc"
