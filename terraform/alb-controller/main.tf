@@ -1,6 +1,6 @@
 data "aws_iam_openid_connect_provider" "cluster" {
   count = var.cluster_oidc_provider_arn == null ? 1 : 0
-  
+
   url = var.cluster_oidc_provider_url
 }
 
