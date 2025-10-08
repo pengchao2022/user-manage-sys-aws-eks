@@ -5,7 +5,7 @@ provider "kubernetes" {
 }
 
 data "aws_eks_cluster_auth" "main" {
-  name = aws_eks_cluster.main.name
+  name = "user-registration-staging"
 }
 # Generate random password for database
 resource "random_password" "db_password" {
