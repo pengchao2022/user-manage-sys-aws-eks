@@ -1,12 +1,3 @@
-provider "kubernetes" {
-  host                   = aws_eks_cluster.main.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.main.token
-}
-
-data "aws_eks_cluster_auth" "main" {
-  name = "user-registration-staging"
-}
 # Generate random password for database
 resource "random_password" "db_password" {
   length  = 16
@@ -47,6 +38,17 @@ module "eks" {
   instance_types      = var.eks_instance_types
 }
 
+# Kubernetes Provider 配置
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
+  token                  = data.aws_eks_cluster_auth.cluster.token
+}
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = module.eks.cluster_name
+}
+
 # RDS Module
 module "rds" {
   source = "./rds"
@@ -69,7 +71,6 @@ module "ecr" {
   project_name      = var.project_name
   repository_name   = "${var.project_name}-app"
   eks_node_role_arn = module.iam.eks_node_group_role_arn
-
 }
 
 # ALB Ingress Controller Module
