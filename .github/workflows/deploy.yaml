@@ -18,6 +18,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
+  ECR_REPOSITORY: user-registration-app
   PROJECT_NAME: user-registration
 
 jobs:
@@ -27,10 +28,9 @@ jobs:
     environment: ${{ github.event.inputs.environment || 'dev' }}
     
     outputs:
-      cluster_name: ${{ steps.set-outputs.outputs.cluster_name }}
-      db_endpoint: ${{ steps.set-outputs.outputs.db_endpoint }}
-      db_password: ${{ steps.set-outputs.outputs.db_password }}
-      ecr_repository: ${{ steps.set-outputs.outputs.ecr_repository }}
+      cluster_name: ${{ steps.outputs.outputs.cluster_name }}
+      db_endpoint: ${{ steps.outputs.outputs.db_endpoint }}
+      db_password: ${{ steps.outputs.outputs.db_password }}
       environment: ${{ steps.env.outputs.environment }}
 
     steps:
@@ -93,67 +93,30 @@ jobs:
           -auto-approve
 
     - name: Get Terraform Outputs
-      id: tf-outputs
+      id: outputs
       run: |
         cd terraform
-        CLUSTER_NAME=$(terraform output -raw cluster_name)
-        DB_ENDPOINT=$(terraform output -raw database_endpoint)
-        DB_PASSWORD=$(terraform output -raw database_password)
-        ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)
-        
-        echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
-        echo "db_endpoint=$DB_ENDPOINT" >> $GITHUB_OUTPUT
-        echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
-        echo "ecr_repository=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
+        echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+        echo "db_endpoint=$(terraform output -raw database_endpoint)" >> $GITHUB_OUTPUT
+        echo "db_password=$(terraform output -raw database_password)" >> $GITHUB_OUTPUT
         
         echo "Infrastructure outputs:"
-        echo "Cluster: $CLUSTER_NAME"
-        echo "DB Endpoint: $DB_ENDPOINT"
-        echo "ECR Repository: $ECR_REPOSITORY"
-
-    - name: Set Job Outputs
-      id: set-outputs
-      run: |
-        echo "cluster_name=${{ steps.tf-outputs.outputs.cluster_name }}" >> $GITHUB_OUTPUT
-        echo "db_endpoint=${{ steps.tf-outputs.outputs.db_endpoint }}" >> $GITHUB_OUTPUT
-        echo "db_password=${{ steps.tf-outputs.outputs.db_password }}" >> $GITHUB_OUTPUT
-        echo "ecr_repository=${{ steps.tf-outputs.outputs.ecr_repository }}" >> $GITHUB_OUTPUT
+        echo "Cluster: $(terraform output -raw cluster_name)"
+        echo "DB Endpoint: $(terraform output -raw database_endpoint)"
 
     - name: Verify Infrastructure
       run: |
         echo "🔍 Verifying infrastructure deployment..."
         
-        # 等待 EKS 集群创建完成
-        echo "Waiting for EKS cluster to be active..."
-        MAX_RETRIES=30
-        COUNT=0
+        # Verify EKS cluster is active
+        CLUSTER_STATUS=$(aws eks describe-cluster \
+          --name ${{ steps.outputs.outputs.cluster_name }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'cluster.status' \
+          --output text)
+        echo "EKS Cluster Status: $CLUSTER_STATUS"
         
-        while [ $COUNT -lt $MAX_RETRIES ]; do
-          CLUSTER_STATUS=$(aws eks describe-cluster \
-            --name ${{ steps.tf-outputs.outputs.cluster_name }} \
-            --region ${{ env.AWS_REGION }} \
-            --query 'cluster.status' \
-            --output text 2>/dev/null || echo "NOT_FOUND")
-          
-          if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
-            echo "✅ EKS Cluster Status: $CLUSTER_STATUS"
-            break
-          elif [ "$CLUSTER_STATUS" = "CREATING" ]; then
-            echo "⏳ EKS Cluster is still creating... ($((COUNT+1))/$MAX_RETRIES)"
-            sleep 30
-            COUNT=$((COUNT+1))
-          else
-            echo "❌ EKS Cluster Status: $CLUSTER_STATUS"
-            echo "Cluster may not be ready yet, continuing with deployment..."
-            break
-          fi
-        done
-        
-        if [ $COUNT -eq $MAX_RETRIES ]; then
-          echo "⚠️ EKS cluster creation taking longer than expected, continuing deployment..."
-        fi
-        
-        # 验证 RDS 实例
+        # Verify RDS instance is available
         RDS_STATUS=$(aws rds describe-db-instances \
           --db-instance-identifier ${{ env.PROJECT_NAME }}-${{ steps.env.outputs.environment }}-db \
           --region ${{ env.AWS_REGION }} \
@@ -170,15 +133,6 @@ jobs:
     environment: ${{ needs.create-infrastructure.outputs.environment }}
     
     steps:
-    - name: Debug Job Outputs
-      run: |
-        echo "=== Debug Job Outputs ==="
-        echo "Environment: ${{ needs.create-infrastructure.outputs.environment }}"
-        echo "Cluster Name: ${{ needs.create-infrastructure.outputs.cluster_name }}"
-        echo "DB Endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
-        echo "ECR Repository: ${{ needs.create-infrastructure.outputs.ecr_repository }}"
-        echo "DB Password: [hidden]"
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -191,17 +145,13 @@ jobs:
 
     - name: Configure kubectl for EKS
       run: |
-        CLUSTER_NAME="${{ needs.create-infrastructure.outputs.cluster_name }}"
-        echo "Configuring kubectl for cluster: $CLUSTER_NAME"
-        
         aws eks update-kubeconfig \
           --region ${{ env.AWS_REGION }} \
-          --name "$CLUSTER_NAME"
-        echo "✅ kubectl configured for cluster: $CLUSTER_NAME"
+          --name ${{ needs.create-infrastructure.outputs.cluster_name }}
+        echo "✅ kubectl configured for cluster: ${{ needs.create-infrastructure.outputs.cluster_name }}"
 
     - name: Verify Cluster Access
       run: |
-        echo "Verifying cluster access..."
         kubectl cluster-info
         kubectl get nodes
         echo "✅ Successfully connected to EKS cluster"
@@ -215,10 +165,9 @@ jobs:
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
-        ECR_REPOSITORY: ${{ needs.create-infrastructure.outputs.ecr_repository }}
       run: |
         # Build the Docker image
-        echo "Building Docker image for repository: $ECR_REPOSITORY"
+        echo "Building Docker image..."
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         
         # Push the image to ECR
@@ -239,7 +188,7 @@ jobs:
         # Database secret
         kubectl create secret generic database-secret \
           --from-literal=host=${{ needs.create-infrastructure.outputs.db_endpoint }} \
-          --from-literal=username=admin \
+          --from-literal=username=appuser \
           --from-literal=password=${{ needs.create-infrastructure.outputs.db_password }} \
           --dry-run=client -o yaml | kubectl apply -f -
         
@@ -324,7 +273,6 @@ jobs:
         echo "Environment: ${{ needs.create-infrastructure.outputs.environment }}"
         echo "EKS Cluster: ${{ needs.create-infrastructure.outputs.cluster_name }}"
         echo "Database Endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
-        echo "ECR Repository: ${{ needs.create-infrastructure.outputs.ecr_repository }}"
         echo "Docker Image: ${{ steps.build-image.outputs.image }}"
         echo "Commit SHA: ${{ github.sha }}"
         echo "Deployed by: ${{ github.actor }}"
