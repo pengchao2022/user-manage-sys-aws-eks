@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Registration Successful{% endblock %}
+
+{% block content %}
+<div class="success-message">
+    <h2>🎉 Registration Successful!</h2>
+    <p>Thank you for registering with us.</p>
+    <div class="actions">
+        <a href="{{ url_for('register') }}" class="btn-primary">Register Another User</a>
+        <a href="{{ url_for('users') }}" class="btn-secondary">View All Users</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,209 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm destruction'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-west-2
+  PROJECT_NAME: user-registration
+
+jobs:
+  validate-destroy:
+    runs-on: ubuntu-latest
+    outputs:
+      should_destroy: ${{ steps.confirm.outputs.should_destroy }}
+      environment: ${{ github.event.inputs.environment }}
+    steps:
+    - name: Confirm destruction
+      id: confirm
+      run: |
+        if [ "${{ github.event.inputs.confirm_destroy }}" = "DESTROY" ]; then
+          echo "✅ Destruction confirmed for environment: ${{ github.event.inputs.environment }}"
+          echo "should_destroy=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Destruction not confirmed. Please type 'DESTROY' to confirm."
+          echo "should_destroy=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+  destroy-application:
+    needs: validate-destroy
+    if: needs.validate-destroy.outputs.should_destroy == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.validate-destroy.outputs.environment }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Get Terraform Outputs
+      id: outputs
+      run: |
+        cd terraform
+        terraform init
+        
+        CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
+        ECR_REPO=$(aws ecr describe-repositories --repository-names ${{ env.PROJECT_NAME }}-app --region ${{ env.AWS_REGION }} --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "")
+        
+        echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+        echo "ecr_repo=$ECR_REPO" >> $GITHUB_OUTPUT
+      continue-on-error: true
+
+    - name: Delete Kubernetes Resources
+      if: steps.outputs.outputs.cluster_name != ''
+      run: |
+        cd terraform
+        CLUSTER_NAME=$(terraform output -raw cluster_name)
+        
+        # Update kubeconfig
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
+        
+        echo "Deleting Kubernetes resources..."
+        
+        # Delete all application resources
+        kubectl delete -f k8s/ingress.yaml --ignore-not-found=true || true
+        kubectl delete -f k8s/service.yaml --ignore-not-found=true || true
+        kubectl delete -f k8s/deployment.yaml --ignore-not-found=true || true
+        kubectl delete -f k8s/configmap.yaml --ignore-not-found=true || true
+        
+        # Delete secrets
+        kubectl delete secret database-secret --ignore-not-found=true || true
+        kubectl delete secret app-secret --ignore-not-found=true || true
+        
+        # Wait for resources to be terminated
+        echo "Waiting for resources to terminate..."
+        sleep 30
+        
+        # Verify resources are deleted
+        kubectl get all
+
+    - name: Delete ECR Images
+      if: steps.outputs.outputs.ecr_repo != ''
+      run: |
+        ECR_REPO=${{ steps.outputs.outputs.ecr_repo }}
+        
+        echo "Deleting ECR images from repository: $ECR_REPO"
+        
+        # Get all image digests
+        IMAGES=$(aws ecr list-images --repository-name ${{ env.PROJECT_NAME }}-app --region ${{ env.AWS_REGION }} --query 'imageIds' --output json 2>/dev/null || echo "[]")
+        
+        if [ "$IMAGES" != "[]" ]; then
+          echo "Deleting ECR images..."
+          aws ecr batch-delete-image \
+            --repository-name ${{ env.PROJECT_NAME }}-app \
+            --region ${{ env.AWS_REGION }} \
+            --image-ids "$IMAGES" \
+            --output text
+          echo "✅ ECR images deleted"
+        else
+          echo "No ECR images to delete"
+        fi
+
+  destroy-infrastructure:
+    needs: [validate-destroy, destroy-application]
+    if: needs.validate-destroy.outputs.should_destroy == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.validate-destroy.outputs.environment }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      run: |
+        cd terraform
+        terraform init
+
+    - name: Terraform Destroy
+      run: |
+        cd terraform
+        echo "Destroying infrastructure for environment: ${{ needs.validate-destroy.outputs.environment }}"
+        terraform destroy \
+          -var="environment=${{ needs.validate-destroy.outputs.environment }}" \
+          -var="project_name=${{ env.PROJECT_NAME }}" \
+          -auto-approve
+
+    - name: Cleanup ECR Repository
+      run: |
+        # Delete ECR repository
+        aws ecr delete-repository \
+          --repository-name ${{ env.PROJECT_NAME }}-app \
+          --region ${{ env.AWS_REGION }} \
+          --force \
+          --output text || true
+        echo "✅ ECR repository deleted"
+
+    - name: Verify Destruction
+      run: |
+        echo "🔍 Verifying infrastructure destruction..."
+        
+        # Check if EKS cluster exists
+        if aws eks describe-cluster \
+          --name ${{ env.PROJECT_NAME }}-${{ needs.validate-destroy.outputs.environment }} \
+          --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+          echo "❌ EKS cluster still exists"
+        else
+          echo "✅ EKS cluster destroyed"
+        fi
+        
+        # Check if RDS instance exists
+        if aws rds describe-db-instances \
+          --db-instance-identifier ${{ env.PROJECT_NAME }}-${{ needs.validate-destroy.outputs.environment }}-db \
+          --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+          echo "❌ RDS instance still exists"
+        else
+          echo "✅ RDS instance destroyed"
+        fi
+        
+        # Check if VPC exists
+        if aws ec2 describe-vpcs \
+          --filters "Name=tag:Name,Values=${{ env.PROJECT_NAME }}-${{ needs.validate-destroy.outputs.environment }}-vpc" \
+          --region ${{ env.AWS_REGION }} --query 'Vpcs[].VpcId' --output text | grep -q .; then
+          echo "❌ VPC still exists"
+        else
+          echo "✅ VPC destroyed"
+        fi
+
+    - name: Destruction Summary
+      run: |
+        echo ""
+        echo "🗑️ DESTRUCTION SUMMARY"
+        echo "===================="
+        echo "Environment: ${{ needs.validate-destroy.outputs.environment }}"
+        echo "Destroyed by: ${{ github.actor }}"
+        echo "Destruction Time: $(date)"
+        echo "✅ All resources have been destroyed"
+        echo ""

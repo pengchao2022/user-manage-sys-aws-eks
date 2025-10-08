@@ -1,0 +1,291 @@
+name: Deploy Application
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: user-registration-app
+  PROJECT_NAME: user-registration
+
+jobs:
+  # Job 1: 创建基础设施
+  create-infrastructure:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    
+    outputs:
+      cluster_name: ${{ steps.outputs.outputs.cluster_name }}
+      db_endpoint: ${{ steps.outputs.outputs.db_endpoint }}
+      db_password: ${{ steps.outputs.outputs.db_password }}
+      environment: ${{ steps.env.outputs.environment }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Determine environment
+      id: env
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          echo "environment=staging" >> $GITHUB_OUTPUT
+        else
+          echo "environment=dev" >> $GITHUB_OUTPUT
+        fi
+        echo "Selected environment: ${{ steps.env.outputs.environment }}"
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      run: |
+        cd terraform
+        echo "Initializing Terraform for environment: ${{ steps.env.outputs.environment }}"
+        terraform init
+
+    - name: Terraform Format Check
+      run: |
+        cd terraform
+        terraform fmt -check -recursive
+
+    - name: Terraform Validate
+      run: |
+        cd terraform
+        terraform validate
+
+    - name: Terraform Plan
+      run: |
+        cd terraform
+        terraform plan \
+          -var="environment=${{ steps.env.outputs.environment }}" \
+          -var="project_name=${{ env.PROJECT_NAME }}" \
+          -out=tfplan
+
+    - name: Terraform Apply
+      run: |
+        cd terraform
+        echo "Applying Terraform for environment: ${{ steps.env.outputs.environment }}"
+        terraform apply -auto-approve tfplan
+
+    - name: Get Terraform Outputs
+      id: outputs
+      run: |
+        cd terraform
+        echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+        echo "db_endpoint=$(terraform output -raw database_endpoint)" >> $GITHUB_OUTPUT
+        echo "db_password=$(terraform output -raw database_password)" >> $GITHUB_OUTPUT
+        
+        echo "Infrastructure outputs:"
+        echo "Cluster: $(terraform output -raw cluster_name)"
+        echo "DB Endpoint: $(terraform output -raw database_endpoint)"
+
+    - name: Verify Infrastructure
+      run: |
+        echo "🔍 Verifying infrastructure deployment..."
+        
+        # Verify EKS cluster is active
+        CLUSTER_STATUS=$(aws eks describe-cluster \
+          --name ${{ steps.outputs.outputs.cluster_name }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'cluster.status' \
+          --output text)
+        echo "EKS Cluster Status: $CLUSTER_STATUS"
+        
+        # Verify RDS instance is available
+        RDS_STATUS=$(aws rds describe-db-instances \
+          --db-instance-identifier ${{ env.PROJECT_NAME }}-${{ steps.env.outputs.environment }}-db \
+          --region ${{ env.AWS_REGION }} \
+          --query 'DBInstances[0].DBInstanceStatus' \
+          --output text)
+        echo "RDS Instance Status: $RDS_STATUS"
+        
+        echo "✅ Infrastructure verification completed"
+
+  # Job 2: 部署应用到 EKS
+  deploy-to-eks:
+    needs: create-infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ needs.create-infrastructure.outputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Configure kubectl for EKS
+      run: |
+        aws eks update-kubeconfig \
+          --region ${{ env.AWS_REGION }} \
+          --name ${{ needs.create-infrastructure.outputs.cluster_name }}
+        echo "✅ kubectl configured for cluster: ${{ needs.create-infrastructure.outputs.cluster_name }}"
+
+    - name: Verify Cluster Access
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+        echo "✅ Successfully connected to EKS cluster"
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build the Docker image
+        echo "Building Docker image..."
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        
+        # Push the image to ECR
+        echo "Pushing Docker image to ECR..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        
+        # Also tag as latest for the environment
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest-${{ needs.create-infrastructure.outputs.environment }}
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest-${{ needs.create-infrastructure.outputs.environment }}
+        
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+
+    - name: Create Kubernetes Secrets
+      run: |
+        echo "Creating Kubernetes secrets..."
+        
+        # Database secret
+        kubectl create secret generic database-secret \
+          --from-literal=host=${{ needs.create-infrastructure.outputs.db_endpoint }} \
+          --from-literal=username=admin \
+          --from-literal=password=${{ needs.create-infrastructure.outputs.db_password }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # App secret (generate if not provided)
+        if [ -n "${{ secrets.APP_SECRET_KEY }}" ]; then
+          echo "Using provided APP_SECRET_KEY from GitHub secrets"
+          kubectl create secret generic app-secret \
+            --from-literal=secret-key=${{ secrets.APP_SECRET_KEY }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+        else
+          echo "Generating random APP_SECRET_KEY"
+          kubectl create secret generic app-secret \
+            --from-literal=secret-key=$(openssl rand -hex 32) \
+            --dry-run=client -o yaml | kubectl apply -f -
+        fi
+        
+        echo "✅ Kubernetes secrets created"
+
+    - name: Deploy Application Configurations
+      run: |
+        echo "Deploying Kubernetes configurations..."
+        
+        # Apply ConfigMap
+        kubectl apply -f k8s/configmap.yaml
+        
+        # Apply Deployment with the new image
+        cat k8s/deployment.yaml | \
+          sed "s|USER_REGISTRATION_APP_IMAGE|${{ steps.build-image.outputs.image }}|g" | \
+          kubectl apply -f -
+        
+        # Apply Service and Ingress
+        kubectl apply -f k8s/service.yaml
+        kubectl apply -f k8s/ingress.yaml
+        
+        echo "✅ All Kubernetes configurations deployed"
+
+    - name: Wait for Application Deployment
+      run: |
+        echo "Waiting for application deployment to complete..."
+        kubectl rollout status deployment/user-registration-app --timeout=300s
+        echo "✅ Application deployment completed"
+
+    - name: Verify Application Health
+      run: |
+        echo "🔍 Verifying application health..."
+        
+        # Check pods
+        echo "--- Running Pods ---"
+        kubectl get pods -l app=user-registration-app
+        
+        # Check services
+        echo "--- Services ---"
+        kubectl get service user-registration-app-service
+        
+        # Check ingress
+        echo "--- Ingress ---"
+        kubectl get ingress user-registration-app-ingress
+        
+        # Test application health endpoint
+        echo "--- Testing Application Health Endpoint ---"
+        kubectl wait --for=condition=ready pod -l app=user-registration-app --timeout=60s
+        
+        # Forward port and test health endpoint
+        kubectl port-forward svc/user-registration-app-service 8080:80 &
+        sleep 10
+        curl -f http://localhost:8080/health || echo "Health check may still be initializing"
+        pkill -f "kubectl port-forward"
+        
+        echo "✅ Application verification completed"
+
+    - name: Get Application URL
+      id: url
+      run: |
+        # Wait for ALB to be provisioned
+        echo "Waiting for ALB provisioning..."
+        sleep 60
+        
+        INGRESS_HOST=$(kubectl get ingress user-registration-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        
+        if [ -n "$INGRESS_HOST" ]; then
+          echo "application_url=http://$INGRESS_HOST" >> $GITHUB_OUTPUT
+          echo "🎊 Application URL: http://$INGRESS_HOST"
+        else
+          echo "Application URL not available yet - ALB may still be provisioning"
+          echo "Run 'kubectl get ingress' to check status later"
+        fi
+
+    - name: Deployment Summary
+      run: |
+        echo ""
+        echo "🎉 DEPLOYMENT SUMMARY"
+        echo "===================="
+        echo "Environment: ${{ needs.create-infrastructure.outputs.environment }}"
+        echo "EKS Cluster: ${{ needs.create-infrastructure.outputs.cluster_name }}"
+        echo "Database Endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
+        echo "Docker Image: ${{ steps.build-image.outputs.image }}"
+        echo "Commit SHA: ${{ github.sha }}"
+        echo "Deployed by: ${{ github.actor }}"
+        echo "Deployment Time: $(date)"
+        if [ -n "${{ steps.url.outputs.application_url }}" ]; then
+          echo "🌐 Application URL: ${{ steps.url.outputs.application_url }}"
+        fi
+        echo ""

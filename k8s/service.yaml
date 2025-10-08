@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-registration-app-service
+  labels:
+    app: user-registration-app
+spec:
+  selector:
+    app: user-registration-app
+  ports:
+  - port: 80
+    targetPort: 5000
+  type: ClusterIP
