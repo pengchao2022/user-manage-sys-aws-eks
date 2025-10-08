@@ -1,26 +1,45 @@
-data "aws_iam_openid_connect_provider" "cluster" {
-  count = var.cluster_oidc_provider_arn == null ? 1 : 0
-
-  url = var.cluster_oidc_provider_url
-}
-
-locals {
-  oidc_provider_arn = var.cluster_oidc_provider_arn != null ? var.cluster_oidc_provider_arn : data.aws_iam_openid_connect_provider.cluster[0].arn
-}
+# IAM Policy for ALB Controller
 resource "aws_iam_policy" "alb_controller" {
-  name        = "${var.project_name}-${var.environment}-ALBControllerPolicy"
-  description = "Policy for AWS Load Balancer Controller"
-  policy      = data.aws_iam_policy_document.alb_controller.json
+  name        = "${var.cluster_name}-alb-controller"
+  description = "Policy for AWS ALB Controller"
 
-  tags = {
-    Environment = var.environment
-    Project     = var.project_name
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateServiceLinkedRole",
+          "ec2:DescribeAccountAttributes",
+          "ec2:DescribeAddresses",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeInternetGateways",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeInstances",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeTags",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeLoadBalancerAttributes",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeListenerCertificates",
+          "elasticloadbalancing:DescribeSSLPolicies",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetGroupAttributes",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:DescribeTags"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # IAM Role for ALB Controller
 resource "aws_iam_role" "alb_controller" {
-  name = "${var.project_name}-${var.environment}-alb-controller-role"
+  name = "${var.cluster_name}-alb-controller"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -28,26 +47,53 @@ resource "aws_iam_role" "alb_controller" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = local.oidc_provider_arn
+          Federated = var.cluster_oidc_provider_arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringEquals = {
-            "${var.cluster_oidc_issuer_url}:aud" : "sts.amazonaws.com",
-            "${var.cluster_oidc_issuer_url}:sub" : "system:serviceaccount:kube-system:aws-load-balancer-controller"
+            "${replace(var.cluster_oidc_provider_arn, "/^[^/]+/", "")}:sub" = "system:serviceaccount:${var.k8s_namespace}:${var.k8s_service_account_name}"
           }
         }
       }
     ]
   })
+}
 
-  tags = {
-    Environment = var.environment
-    Project     = var.project_name
+# Attach policy to role
+resource "aws_iam_role_policy_attachment" "alb_controller" {
+  role       = aws_iam_role.alb_controller.name
+  policy_arn = aws_iam_policy.alb_controller.arn
+}
+
+# Kubernetes Service Account
+resource "kubernetes_service_account" "alb_controller" {
+  metadata {
+    name      = var.k8s_service_account_name
+    namespace = var.k8s_namespace
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.alb_controller.arn
+    }
   }
 }
 
-resource "aws_iam_role_policy_attachment" "alb_controller" {
-  policy_arn = aws_iam_policy.alb_controller.arn
-  role       = aws_iam_role.alb_controller.name
+# Helm Release for AWS Load Balancer Controller
+resource "helm_release" "aws_load_balancer_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  version    = var.helm_chart_version
+  namespace  = var.k8s_namespace
+
+  values = [
+    <<-EOT
+    clusterName: ${var.cluster_name}
+    serviceAccount:
+      create: false
+      name: ${var.k8s_service_account_name}
+    region: ${var.aws_region}
+    vpcId: ${var.vpc_id}
+    replicaCount: ${var.replica_count}
+    EOT
+  ]
 }

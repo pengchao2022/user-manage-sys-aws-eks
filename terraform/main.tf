@@ -4,11 +4,6 @@ resource "random_password" "db_password" {
   special = false
 }
 
-# 获取 OIDC provider 数据
-data "aws_iam_openid_connect_provider" "cluster" {
-  url = module.eks.cluster_oidc_issuer_url
-}
-
 # VPC Module
 module "vpc" {
   source = "./vpc"
@@ -68,14 +63,13 @@ module "ecr" {
 
 }
 
-
-# ALB Controller Module
 module "alb_controller" {
   source = "./alb-controller"
 
-  cluster_name              = module.eks.cluster_name
-  cluster_oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
-  cluster_oidc_provider_arn = data.aws_iam_openid_connect_provider.cluster.arn
-  environment               = var.environment
-  project_name              = var.project_name
+  cluster_name              = "${var.project_name}-${var.environment}"
+  cluster_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(aws_eks_cluster.main.identity[0].oidc[0].issuer, "https://", "")}"
+  vpc_id                    = module.vpc.vpc_id
+  aws_region                = var.aws_region
 }
+
+data "aws_caller_identity" "current" {}

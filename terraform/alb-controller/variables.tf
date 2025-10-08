@@ -3,28 +3,42 @@ variable "cluster_name" {
   type        = string
 }
 
-variable "cluster_oidc_issuer_url" {
-  description = "OIDC issuer URL for the EKS cluster"
-  type        = string
-}
-
 variable "cluster_oidc_provider_arn" {
-  description = "OIDC provider ARN for the EKS cluster"
+  description = "ARN of the EKS OIDC Provider"
   type        = string
 }
 
-variable "environment" {
-  description = "Environment name"
+variable "vpc_id" {
+  description = "VPC ID where the EKS cluster is deployed"
   type        = string
 }
 
-variable "project_name" {
-  description = "Project name"
+variable "aws_region" {
+  description = "AWS region"
   type        = string
+  default     = "us-west-2"
 }
 
-variable "cluster_oidc_provider_url" {
-  description = "EKS Cluster OIDC Provider URL"
+variable "k8s_namespace" {
+  description = "Kubernetes namespace for ALB Controller"
   type        = string
-  default     = null
+  default     = "kube-system"
+}
+
+variable "k8s_service_account_name" {
+  description = "Kubernetes service account name for ALB Controller"
+  type        = string
+  default     = "aws-load-balancer-controller"
+}
+
+variable "helm_chart_version" {
+  description = "Version of the AWS Load Balancer Controller Helm chart"
+  type        = string
+  default     = "1.4.7"
+}
+
+variable "replica_count" {
+  description = "Number of ALB Controller replicas"
+  type        = number
+  default     = 1
 }
