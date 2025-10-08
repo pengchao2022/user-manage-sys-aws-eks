@@ -1,45 +1,17 @@
-# IAM Policy for ALB Controller
-resource "aws_iam_policy" "alb_controller" {
-  name        = "${var.cluster_name}-alb-controller"
-  description = "Policy for AWS ALB Controller"
+data "aws_caller_identity" "current" {}
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "iam:CreateServiceLinkedRole",
-          "ec2:DescribeAccountAttributes",
-          "ec2:DescribeAddresses",
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeInternetGateways",
-          "ec2:DescribeVpcs",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeInstances",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DescribeTags",
-          "elasticloadbalancing:DescribeLoadBalancers",
-          "elasticloadbalancing:DescribeLoadBalancerAttributes",
-          "elasticloadbalancing:DescribeListeners",
-          "elasticloadbalancing:DescribeListenerCertificates",
-          "elasticloadbalancing:DescribeSSLPolicies",
-          "elasticloadbalancing:DescribeRules",
-          "elasticloadbalancing:DescribeTargetGroups",
-          "elasticloadbalancing:DescribeTargetGroupAttributes",
-          "elasticloadbalancing:DescribeTargetHealth",
-          "elasticloadbalancing:DescribeTags"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+# 获取集群信息
+data "aws_eks_cluster" "eks" {
+  name = var.eks_cluster_name
 }
 
-# IAM Role for ALB Controller
+data "aws_eks_cluster_auth" "eks" {
+  name = var.eks_cluster_name
+}
+
+# 创建 IAM Role for ALB Controller
 resource "aws_iam_role" "alb_controller" {
-  name = "${var.cluster_name}-alb-controller"
+  name = "${var.eks_cluster_name}-alb-controller"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -47,53 +19,53 @@ resource "aws_iam_role" "alb_controller" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = var.cluster_oidc_provider_arn
+          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(data.aws_eks_cluster.eks.identity[0].oidc[0].issuer, "https://", "")}"
         }
         Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${replace(var.cluster_oidc_provider_arn, "/^[^/]+/", "")}:sub" = "system:serviceaccount:${var.k8s_namespace}:${var.k8s_service_account_name}"
-          }
-        }
       }
     ]
   })
 }
 
-# Attach policy to role
-resource "aws_iam_role_policy_attachment" "alb_controller" {
-  role       = aws_iam_role.alb_controller.name
-  policy_arn = aws_iam_policy.alb_controller.arn
+# 绑定 AWS 官方 ALB Controller Policy
+resource "aws_iam_policy_attachment" "alb_controller_attach" {
+  name       = "${var.eks_cluster_name}-alb-policy-attachment"
+  roles      = [aws_iam_role.alb_controller.name]
+  policy_arn = "arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy"
 }
 
-# Kubernetes Service Account
+# 创建 Service Account for ALB Controller
 resource "kubernetes_service_account" "alb_controller" {
   metadata {
-    name      = var.k8s_service_account_name
-    namespace = var.k8s_namespace
+    name      = "aws-load-balancer-controller"
+    namespace = "kube-system"
     annotations = {
       "eks.amazonaws.com/role-arn" = aws_iam_role.alb_controller.arn
     }
   }
+
+  automount_service_account_token = true
 }
 
-# Helm Release for AWS Load Balancer Controller
+# Helm 安装 AWS Load Balancer Controller
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
-  version    = var.helm_chart_version
-  namespace  = var.k8s_namespace
+  namespace  = "kube-system"
+  version    = var.chart_version
+
+  depends_on = [kubernetes_service_account.alb_controller]
 
   values = [
-    <<-EOT
-    clusterName: ${var.cluster_name}
-    serviceAccount:
-      create: false
-      name: ${var.k8s_service_account_name}
-    region: ${var.aws_region}
-    vpcId: ${var.vpc_id}
-    replicaCount: ${var.replica_count}
-    EOT
+    yamlencode({
+      clusterName = var.eks_cluster_name
+      region      = var.aws_region
+      vpcId       = var.vpc_id
+      serviceAccount = {
+        create = false
+        name   = kubernetes_service_account.alb_controller.metadata[0].name
+      }
+    })
   ]
 }

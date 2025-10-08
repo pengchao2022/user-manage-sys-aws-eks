@@ -1,44 +1,20 @@
-variable "cluster_name" {
-  description = "Name of the EKS cluster"
-  type        = string
-}
-
-variable "cluster_oidc_provider_arn" {
-  description = "ARN of the EKS OIDC Provider"
-  type        = string
-}
-
-variable "vpc_id" {
-  description = "VPC ID where the EKS cluster is deployed"
+variable "eks_cluster_name" {
+  description = "EKS cluster name"
   type        = string
 }
 
 variable "aws_region" {
-  description = "AWS region"
+  description = "AWS region where the EKS cluster is running"
   type        = string
-  default     = "us-west-2"
 }
 
-variable "k8s_namespace" {
-  description = "Kubernetes namespace for ALB Controller"
+variable "vpc_id" {
+  description = "VPC ID where the cluster is running"
   type        = string
-  default     = "kube-system"
 }
 
-variable "k8s_service_account_name" {
-  description = "Kubernetes service account name for ALB Controller"
+variable "chart_version" {
+  description = "Helm chart version of aws-load-balancer-controller"
   type        = string
-  default     = "aws-load-balancer-controller"
-}
-
-variable "helm_chart_version" {
-  description = "Version of the AWS Load Balancer Controller Helm chart"
-  type        = string
-  default     = "1.4.7"
-}
-
-variable "replica_count" {
-  description = "Number of ALB Controller replicas"
-  type        = number
-  default     = 1
+  default     = "1.9.2" # 你可以固定或升级版本
 }

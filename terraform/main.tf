@@ -63,13 +63,14 @@ module "ecr" {
 
 }
 
-module "alb_controller" {
+# ALB Ingress Controller Module
+module "alb_ingress_controller" {
   source = "./alb-controller"
 
-  cluster_name              = "${var.project_name}-${var.environment}"
-  cluster_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(aws_eks_cluster.main.identity[0].oidc[0].issuer, "https://", "")}"
-  vpc_id                    = module.vpc.vpc_id
-  aws_region                = var.aws_region
-}
+  eks_cluster_name = module.eks.cluster_name
+  aws_region       = var.aws_region
+  vpc_id           = module.vpc.vpc_id
 
-data "aws_caller_identity" "current" {}
+  # 可选：如想固定 Helm chart 版本
+  chart_version    = "1.9.2"
+}
