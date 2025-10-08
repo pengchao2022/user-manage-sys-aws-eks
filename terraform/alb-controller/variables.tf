@@ -22,3 +22,9 @@ variable "project_name" {
   description = "Project name"
   type        = string
 }
+
+variable "cluster_oidc_provider_url" {
+  description = "EKS Cluster OIDC Provider URL"
+  type        = string
+  default     = null
+}

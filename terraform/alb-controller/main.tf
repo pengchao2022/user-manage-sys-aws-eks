@@ -1,13 +1,12 @@
-# 动态获取或使用传入的 OIDC Provider ARN
+data "aws_iam_openid_connect_provider" "cluster" {
+  count = var.cluster_oidc_provider_arn == null ? 1 : 0
+  
+  url = var.cluster_oidc_provider_url
+}
+
 locals {
-  oidc_provider_arn = var.cluster_oidc_provider_arn != null ? var.cluster_oidc_provider_arn : data.aws_iam_openid_connect_provider.cluster.arn
+  oidc_provider_arn = var.cluster_oidc_provider_arn != null ? var.cluster_oidc_provider_arn : data.aws_iam_openid_connect_provider.cluster[0].arn
 }
-
-# IAM Policy for ALB Controller (保持原有代码不变)
-data "aws_iam_policy_document" "alb_controller" {
-  # ... 保持原有 policy 文档
-}
-
 resource "aws_iam_policy" "alb_controller" {
   name        = "${var.project_name}-${var.environment}-ALBControllerPolicy"
   description = "Policy for AWS Load Balancer Controller"
