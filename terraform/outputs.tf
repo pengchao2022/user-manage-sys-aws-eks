@@ -14,17 +14,6 @@ output "database_endpoint" {
   sensitive   = true
 }
 
-output "database_name" {
-  description = "Database name"
-  value       = module.rds.database_name
-}
-
-output "database_username" {
-  description = "Database username"
-  value       = var.database_username
-  sensitive   = true
-}
-
 output "database_password" {
   description = "RDS password"
   value       = random_password.db_password.result
@@ -34,4 +23,14 @@ output "database_password" {
 output "vpc_id" {
   description = "VPC ID"
   value       = module.vpc.vpc_id
+}
+
+output "ecr_repository_url" {
+  description = "ECR repository URL"
+  value       = module.ecr.repository_url
+}
+
+output "ecr_repository_name" {
+  description = "ECR repository name"
+  value       = module.ecr.repository_name
 }

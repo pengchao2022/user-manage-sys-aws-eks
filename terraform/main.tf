@@ -51,3 +51,14 @@ module "rds" {
   database_password = random_password.db_password.result
   instance_class    = var.db_instance_class
 }
+
+# ECR Module
+module "ecr" {
+  source = "./ecr"
+
+  environment       = var.environment
+  project_name      = var.project_name
+  repository_name   = "${var.project_name}-app"
+  eks_node_role_arn = module.iam.eks_node_group_role_arn
+
+}
