@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "us-west-2"
+  default     = "us-east-1"
 }
 
 variable "environment" {
@@ -46,14 +46,3 @@ variable "db_instance_class" {
   default     = "db.t3.micro"
 }
 
-# S3 backend 配置变量
-variable "tf_state_bucket" {
-  description = "S3 bucket for Terraform state"
-  type        = string
-}
-
-variable "tf_state_region" {
-  description = "Region for Terraform state bucket"
-  type        = string
-  default     = "us-west-2"
-}

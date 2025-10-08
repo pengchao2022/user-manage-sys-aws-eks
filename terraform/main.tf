@@ -21,16 +21,6 @@ module "iam" {
   environment  = var.environment
   project_name = var.project_name
   cluster_name = "${var.project_name}-${var.environment}"
-
-  # 可选：配置额外的策略
-  create_ecr_policy = true
-  create_s3_policy  = false
-
-  tags = {
-    Terraform  = "true"
-    Repository = "user-registration-app"
-    Owner      = "devops-team"
-  }
 }
 
 # EKS Module

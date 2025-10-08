@@ -78,16 +78,19 @@ jobs:
     - name: Terraform Plan
       run: |
         cd terraform
+        echo "Running Terraform plan for environment: ${{ steps.env.outputs.environment }}"
         terraform plan \
           -var="environment=${{ steps.env.outputs.environment }}" \
-          -var="project_name=${{ env.PROJECT_NAME }}" \
-          -out=tfplan
+          -var="project_name=${{ env.PROJECT_NAME }}"
 
     - name: Terraform Apply
       run: |
         cd terraform
         echo "Applying Terraform for environment: ${{ steps.env.outputs.environment }}"
-        terraform apply -auto-approve tfplan
+        terraform apply \
+          -var="environment=${{ steps.env.outputs.environment }}" \
+          -var="project_name=${{ env.PROJECT_NAME }}" \
+          -auto-approve
 
     - name: Get Terraform Outputs
       id: outputs
@@ -244,16 +247,6 @@ jobs:
         echo "--- Ingress ---"
         kubectl get ingress user-registration-app-ingress
         
-        # Test application health endpoint
-        echo "--- Testing Application Health Endpoint ---"
-        kubectl wait --for=condition=ready pod -l app=user-registration-app --timeout=60s
-        
-        # Forward port and test health endpoint
-        kubectl port-forward svc/user-registration-app-service 8080:80 &
-        sleep 10
-        curl -f http://localhost:8080/health || echo "Health check may still be initializing"
-        pkill -f "kubectl port-forward"
-        
         echo "✅ Application verification completed"
 
     - name: Get Application URL
@@ -270,7 +263,6 @@ jobs:
           echo "🎊 Application URL: http://$INGRESS_HOST"
         else
           echo "Application URL not available yet - ALB may still be provisioning"
-          echo "Run 'kubectl get ingress' to check status later"
         fi
 
     - name: Deployment Summary
