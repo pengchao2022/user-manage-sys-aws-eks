@@ -34,6 +34,7 @@ jobs:
       db_password: ${{ steps.set-outputs.outputs.db_password }}
       ecr_repository: ${{ steps.set-outputs.outputs.ecr_repository }}
       alb_controller_role_arn: ${{ steps.set-outputs.outputs.alb_controller_role_arn }}
+      vpc_id: ${{ steps.set-outputs.outputs.vpc_id }}
       environment: ${{ steps.env.outputs.environment }}
 
     steps:
@@ -104,6 +105,7 @@ jobs:
         DB_PASSWORD=$(terraform output -raw database_password)
         ECR_REPOSITORY=$(terraform output -raw ecr_repository_name 2>/dev/null || echo "${{ env.ECR_REPOSITORY }}")
         ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn 2>/dev/null || echo "NOT_CONFIGURED")
+        VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || echo "NOT_CONFIGURED")
         
         # 从端点中提取主机名（去掉端口号）
         DB_HOST=$(echo "$DB_ENDPOINT" | cut -d: -f1)
@@ -114,6 +116,7 @@ jobs:
         echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
         echo "ecr_repository=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
         echo "alb_controller_role_arn=$ALB_ROLE_ARN" >> $GITHUB_OUTPUT
+        echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
         
         echo "Infrastructure outputs:"
         echo "Cluster: $CLUSTER_NAME"
@@ -121,6 +124,7 @@ jobs:
         echo "DB Host: $DB_HOST"
         echo "ECR Repository: $ECR_REPOSITORY"
         echo "ALB Controller Role ARN: $ALB_ROLE_ARN"
+        echo "VPC ID: $VPC_ID"
 
     - name: Set Job Outputs
       id: set-outputs
@@ -131,6 +135,7 @@ jobs:
         echo "db_password=${{ steps.tf-outputs.outputs.db_password }}" >> $GITHUB_OUTPUT
         echo "ecr_repository=${{ steps.tf-outputs.outputs.ecr_repository }}" >> $GITHUB_OUTPUT
         echo "alb_controller_role_arn=${{ steps.tf-outputs.outputs.alb_controller_role_arn }}" >> $GITHUB_OUTPUT
+        echo "vpc_id=${{ steps.tf-outputs.outputs.vpc_id }}" >> $GITHUB_OUTPUT
 
     - name: Verify Infrastructure
       run: |
@@ -192,6 +197,7 @@ jobs:
         echo "DB Host: ${{ needs.create-infrastructure.outputs.db_host }}"
         echo "ECR Repository: ${{ needs.create-infrastructure.outputs.ecr_repository }}"
         echo "ALB Controller Role ARN: ${{ needs.create-infrastructure.outputs.alb_controller_role_arn }}"
+        echo "VPC ID: ${{ needs.create-infrastructure.outputs.vpc_id }}"
         echo "DB Password: [hidden]"
 
     - name: Checkout code
@@ -239,56 +245,92 @@ jobs:
         kubectl get pods -n kube-system -l k8s-app=aws-node
         echo "✅ Network fixes applied"
 
-    - name: Deploy ALB Ingress Controller
+    # ========== 新增：部署 ALB Controller ==========
+    - name: Deploy ALB Controller via Helm
+      id: deploy-alb
       run: |
-        echo "🚀 Deploying ALB Ingress Controller..."
+        echo "🚀 Deploying AWS Load Balancer Controller via Helm..."
         
-        ALB_ROLE_ARN="${{ needs.create-infrastructure.outputs.alb_controller_role_arn }}"
         CLUSTER_NAME="${{ needs.create-infrastructure.outputs.cluster_name }}"
+        VPC_ID="${{ needs.create-infrastructure.outputs.vpc_id }}"
         
-        echo "ALB Role ARN: $ALB_ROLE_ARN"
         echo "Cluster Name: $CLUSTER_NAME"
+        echo "VPC ID: $VPC_ID"
+        echo "AWS Region: ${{ env.AWS_REGION }}"
         
-        if [ "$ALB_ROLE_ARN" = "NOT_CONFIGURED" ]; then
-          echo "⚠️ ALB Controller not configured in Terraform, skipping deployment"
-          exit 0
-        fi
+        # 添加 EKS Helm 仓库
+        echo "=== Adding EKS Helm Repository ==="
+        helm repo add eks https://aws.github.io/eks-charts
+        helm repo update
         
         # 检查是否已存在 ALB Controller
-        EXISTING_CONTROLLER=$(kubectl get deployment -n kube-system aws-load-balancer-controller 2>/dev/null | wc -l)
+        EXISTING_CONTROLLER=$(helm list -n kube-system | grep aws-load-balancer-controller | wc -l)
         
-        if [ "$EXISTING_CONTROLLER" -gt 1 ]; then
-          echo "🔄 ALB Controller already exists, updating..."
-          kubectl delete deployment -n kube-system aws-load-balancer-controller
-          sleep 10
+        if [ "$EXISTING_CONTROLLER" -gt 0 ]; then
+          echo "🔄 ALB Controller already exists, upgrading..."
+          helm upgrade aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=$CLUSTER_NAME \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --set region=${{ env.AWS_REGION }} \
+            --set vpcId=$VPC_ID \
+            --set replicaCount=2 \
+            --wait
+        else
+          echo "🆕 Installing new ALB Controller..."
+          helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=$CLUSTER_NAME \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --set region=${{ env.AWS_REGION }} \
+            --set vpcId=$VPC_ID \
+            --set replicaCount=2 \
+            --wait
         fi
         
-        # 部署 RBAC
-        echo "=== Deploying RBAC ==="
-        kubectl apply -f k8s/alb-controller-rbac.yaml
-        
-        # 部署 ServiceAccount（替换 ARN）
-        echo "=== Deploying ServiceAccount ==="
-        cat k8s/alb-controller-serviceaccount.yaml | \
-          sed "s|ALB_CONTROLLER_ROLE_ARN|$ALB_ROLE_ARN|g" | \
-          kubectl apply -f -
-        
-        # 部署 Deployment（替换集群名称）
-        echo "=== Deploying ALB Controller ==="
-        cat k8s/alb-controller-deployment.yaml | \
-          sed "s|CLUSTER_NAME|$CLUSTER_NAME|g" | \
-          kubectl apply -f -
+        echo "✅ ALB Controller Helm deployment completed"
+
+    - name: Wait for ALB Controller to be Ready
+      run: |
+        echo "⏳ Waiting for ALB Controller pods to be ready..."
         
         # 等待 ALB Controller 启动
-        echo "=== Waiting for ALB Controller to start ==="
-        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=300s
+        kubectl wait --for=condition=ready pod \
+          -l app.kubernetes.io/name=aws-load-balancer-controller \
+          -n kube-system \
+          --timeout=300s
         
         # 检查 ALB Controller 状态
         echo "=== ALB Controller Status ==="
         kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
         
-        echo "✅ ALB Ingress Controller deployed successfully"
+        # 检查 ALB Controller 日志
+        echo "=== ALB Controller Logs (last 10 lines) ==="
+        kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller --tail=10
+        
+        echo "✅ ALB Controller is ready"
 
+    - name: Verify ALB Controller Installation
+      run: |
+        echo "🔍 Verifying ALB Controller installation..."
+        
+        # 检查部署状态
+        echo "=== Deployment Status ==="
+        kubectl get deployment -n kube-system aws-load-balancer-controller
+        
+        # 检查服务账户
+        echo "=== Service Account ==="
+        kubectl get serviceaccount -n kube-system aws-load-balancer-controller
+        
+        # 检查 CRDs 是否安装
+        echo "=== Custom Resource Definitions ==="
+        kubectl get crd | grep alb
+        
+        echo "✅ ALB Controller verification completed"
+
+    # ========== 继续原有步骤 ==========
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
@@ -529,6 +571,7 @@ jobs:
         echo "Commit SHA: ${{ github.sha }}"
         echo "Deployed by: ${{ github.actor }}"
         echo "Deployment Time: $(date)"
+        echo "ALB Controller: ✅ Deployed via Helm"
         if [ -n "${{ steps.url.outputs.application_url }}" ]; then
           echo "🌐 Application URL: ${{ steps.url.outputs.application_url }}"
         else

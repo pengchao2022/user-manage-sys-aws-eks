@@ -70,17 +70,11 @@ module "ecr" {
 }
 
 # ALB Ingress Controller Module
+# ALB Ingress Controller Module (只创建 IAM)
 module "alb_ingress_controller" {
   source = "./alb-controller"
 
   eks_cluster_name = module.eks.cluster_name
   aws_region       = var.aws_region
   vpc_id           = module.vpc.vpc_id
-
-  # 可选：如想固定 Helm chart 版本
-  chart_version = "1.9.2"
-
-  depends_on = [
-    module.eks
-  ]
 }
