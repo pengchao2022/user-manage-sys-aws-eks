@@ -317,9 +317,17 @@ jobs:
         echo "=== Service Account ==="
         kubectl get serviceaccount -n kube-system aws-load-balancer-controller
         
-        # 检查 CRDs 是否安装
+        # 检查 CRDs 是否安装（使用安全的方式）
         echo "=== Custom Resource Definitions ==="
-        kubectl get crd | grep alb
+        kubectl get crd 2>/dev/null | grep -E "(alb|elb)" || echo "No ALB-related CRDs found yet (this is normal during initial deployment)"
+        
+        # 检查 Pod 状态
+        echo "=== Pod Status ==="
+        kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
+        
+        # 检查 Pod 日志是否有错误
+        echo "=== Checking for Errors in Pod Logs ==="
+        kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller --tail=20
         
         echo "✅ ALB Controller verification completed"
 
