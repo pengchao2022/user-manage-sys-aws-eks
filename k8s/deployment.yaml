@@ -5,7 +5,7 @@ metadata:
   labels:
     app: user-registration-app
 spec:
-  replicas: 2  # 先减少副本数，便于调试
+  replicas: 1 
   selector:
     matchLabels:
       app: user-registration-app
