@@ -65,12 +65,12 @@ module "ecr" {
 
 
 # ALB Controller Module
+# ALB Controller Module - 使用简化版本
 module "alb_controller" {
-  source = "./alb-controller"
+  source = "./modules/alb-controller-simple"
 
-  cluster_name              = module.eks.cluster_name
-  cluster_oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
-  cluster_oidc_provider_arn = data.aws_iam_openid_connect_provider.cluster.arn
-  environment               = var.environment
-  project_name              = var.project_name
+  cluster_name            = module.eks.cluster_name
+  cluster_oidc_issuer_url = module.eks.cluster_oidc_issuer_url
+  environment             = var.environment
+  project_name            = var.project_name
 }
