@@ -81,14 +81,14 @@ resource "aws_iam_policy" "alb_controller_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Action   = [
+        Action = [
           "elasticloadbalancing:DescribeLoadBalancers",
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:CreateTargetGroup",
           "elasticloadbalancing:CreateLoadBalancer",
           "elasticloadbalancing:CreateListener",
-          "elasticloadbalancing:AddTags", 
+          "elasticloadbalancing:AddTags",
           "elasticloadbalancing:DeleteTargetGroup",
           "elasticloadbalancing:DeleteLoadBalancer",
           "elasticloadbalancing:DeleteListener",
