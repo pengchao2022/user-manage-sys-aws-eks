@@ -28,11 +28,21 @@ resource "aws_iam_role" "alb_controller" {
 }
 
 # 绑定 AWS 官方 ALB Controller Policy
-resource "aws_iam_policy_attachment" "alb_controller_attach" {
-  name       = "${var.eks_cluster_name}-alb-policy-attachment"
-  roles      = [aws_iam_role.alb_controller.name]
-  policy_arn = "arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy"
+# 创建 AWSLoadBalancerControllerIAMPolicy（来自官方 JSON）
+data "http" "alb_policy" {
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json"
 }
+
+resource "aws_iam_policy" "alb_controller_policy" {
+  name   = "${var.eks_cluster_name}-alb-controller-policy"
+  policy = data.http.alb_policy.response_body
+}
+
+resource "aws_iam_role_policy_attachment" "alb_controller_policy_attach" {
+  role       = aws_iam_role.alb_controller.name
+  policy_arn = aws_iam_policy.alb_controller_policy.arn
+}
+
 
 # 创建 Service Account for ALB Controller
 resource "kubernetes_service_account" "alb_controller" {
