@@ -215,6 +215,24 @@ jobs:
         kubectl get nodes
         echo "✅ Successfully connected to EKS cluster"
 
+    - name: Fix Network Issues
+      run: |
+        echo "🔧 Fixing network issues..."
+        
+        # 检查 CNI 状态
+        echo "=== Checking CNI Status ==="
+        kubectl get pods -n kube-system -l k8s-app=aws-node
+        
+        # 重启 CNI pods 如果必要
+        echo "=== Restarting CNI Pods ==="
+        kubectl delete pods -n kube-system -l k8s-app=aws-node --force --grace-period=0
+        echo "Waiting for CNI pods to restart..."
+        sleep 30
+        
+        # 验证 CNI pods 重新启动
+        kubectl get pods -n kube-system -l k8s-app=aws-node
+        echo "✅ Network fixes applied"
+
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
@@ -253,74 +271,72 @@ jobs:
         kubectl delete secret app-secret --ignore-not-found=true --timeout=30s || true
         
         echo "✅ Cleanup completed"
-        sleep 15  # 等待资源完全清理
+        sleep 10  # 等待资源完全清理
 
-    - name: Create Kubernetes Secrets
+    - name: Create Kubernetes Secrets - FIXED
       run: |
-        echo "Creating Kubernetes secrets..."
+        echo "🔧 Creating Kubernetes secrets - FIXED VERSION..."
         
-        # 首先验证数据库主机是否可用
-        echo "Database host: ${{ needs.create-infrastructure.outputs.db_host }}"
-        echo "Database endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
+        # 使用明确的变量，避免任何可能的转义问题
+        DB_HOST="${{ needs.create-infrastructure.outputs.db_host }}"
+        DB_PASSWORD="${{ needs.create-infrastructure.outputs.db_password }}"
         
-        # 删除可能存在的旧 secret
-        kubectl delete secret database-secret --ignore-not-found=true
+        echo "Using values:"
+        echo "DB_HOST: $DB_HOST"
+        echo "DB_PASSWORD: [hidden]"
         
-        # 创建新的 database secret - 使用 db_host 而不是 db_endpoint
+        # 方法1: 直接创建 secret（不使用 dry-run）
+        echo "Creating database-secret..."
         kubectl create secret generic database-secret \
-          --from-literal=host=${{ needs.create-infrastructure.outputs.db_host }} \
-          --from-literal=username=appuser \
-          --from-literal=password=${{ needs.create-infrastructure.outputs.db_password }} \
-          --dry-run=client -o yaml | kubectl apply -f -
+          --from-literal=host="$DB_HOST" \
+          --from-literal=username="appuser" \
+          --from-literal=password="$DB_PASSWORD"
         
-        # App secret (generate if not provided)
+        # 验证 secret 创建
+        echo "Verifying database-secret creation..."
+        kubectl get secret database-secret
+        
+        # 创建 app-secret
         if [ -n "${{ secrets.APP_SECRET_KEY }}" ]; then
-          echo "Using provided APP_SECRET_KEY from GitHub secrets"
+          echo "Using provided APP_SECRET_KEY"
           kubectl create secret generic app-secret \
-            --from-literal=secret-key=${{ secrets.APP_SECRET_KEY }} \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --from-literal=secret-key="${{ secrets.APP_SECRET_KEY }}"
         else
           echo "Generating random APP_SECRET_KEY"
           kubectl create secret generic app-secret \
-            --from-literal=secret-key=$(openssl rand -hex 32) \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --from-literal=secret-key=$(openssl rand -hex 32)
         fi
         
         echo "✅ Kubernetes secrets created"
 
-    - name: Verify Kubernetes Secrets
+    - name: Verify Secrets Content - THOROUGH
       run: |
-        echo "🔍 Verifying Kubernetes secrets..."
+        echo "🔍 Thoroughly verifying secret content..."
         
-        # 检查 database-secret
-        echo "=== Database Secret ==="
+        # 详细检查 secret 内容
+        echo "=== Database Secret Full Details ==="
         kubectl get secret database-secret -o yaml
         
-        # 验证所有必需的键都存在
-        HOST_EXISTS=$(kubectl get secret database-secret -o jsonpath='{.data.host}')
-        USERNAME_EXISTS=$(kubectl get secret database-secret -o jsonpath='{.data.username}') 
-        PASSWORD_EXISTS=$(kubectl get secret database-secret -o jsonpath='{.data.password}')
+        echo "=== Database Secret Keys ==="
+        kubectl get secret database-secret -o jsonpath='{.data}' | jq -r 'keys[]'
         
-        if [ -n "$HOST_EXISTS" ] && [ -n "$USERNAME_EXISTS" ] && [ -n "$PASSWORD_EXISTS" ]; then
-          echo "✅ All database secret keys are present"
-          echo "Host: $(echo $HOST_EXISTS | base64 -d)"
-          echo "Username: $(echo $USERNAME_EXISTS | base64 -d)"
-          echo "Password: [hidden]"
-        else
-          echo "❌ Missing keys in database secret:"
-          echo "Host exists: $([ -n "$HOST_EXISTS" ] && echo "YES" || echo "NO")"
-          echo "Username exists: $([ -n "$USERNAME_EXISTS" ] && echo "YES" || echo "NO")"
-          echo "Password exists: $([ -n "$PASSWORD_EXISTS" ] && echo "YES" || echo "NO")"
-          exit 1
-        fi
+        echo "=== Database Secret Values (decoded) ==="
+        HOST=$(kubectl get secret database-secret -o jsonpath='{.data.host}' | base64 -d)
+        USERNAME=$(kubectl get secret database-secret -o jsonpath='{.data.username}' | base64 -d)
+        PASSWORD=$(kubectl get secret database-secret -o jsonpath='{.data.password}' | base64 -d)
         
-        # 检查 app-secret
-        echo "=== App Secret ==="
-        SECRET_KEY_EXISTS=$(kubectl get secret app-secret -o jsonpath='{.data.secret-key}')
-        if [ -n "$SECRET_KEY_EXISTS" ]; then
-          echo "✅ App secret key is present"
+        echo "Host: $HOST"
+        echo "Username: $USERNAME"
+        echo "Password: [hidden]"
+        
+        # 验证所有键都存在
+        if [ -n "$HOST" ] && [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
+          echo "✅ ALL SECRET KEYS ARE PRESENT AND CORRECT"
         else
-          echo "❌ App secret key is missing"
+          echo "❌ MISSING SECRET KEYS:"
+          echo "Host present: $([ -n "$HOST" ] && echo "YES" || echo "NO")"
+          echo "Username present: $([ -n "$USERNAME" ] && echo "YES" || echo "NO")"
+          echo "Password present: $([ -n "$PASSWORD" ] && echo "YES" || echo "NO")"
           exit 1
         fi
 
@@ -354,8 +370,17 @@ jobs:
         echo "🔍 Verifying application health..."
         
         # Check pods
-        echo "--- Running Pods ---"
+        echo "--- Running Pods ==="
         kubectl get pods -l app=user-registration-app -o wide
+        
+        # Check pod events and logs
+        PODS=$(kubectl get pods -l app=user-registration-app -o jsonpath='{.items[*].metadata.name}')
+        for POD in $PODS; do
+          echo "--- Pod $POD Details ---"
+          kubectl describe pod $POD
+          echo "--- Pod $POD Logs ---"
+          kubectl logs $POD --tail=50 || echo "No logs available"
+        done
         
         # Check services
         echo "--- Services ---"
@@ -364,14 +389,6 @@ jobs:
         # Check ingress
         echo "--- Ingress ---"
         kubectl get ingress user-registration-app-ingress
-        
-        # 检查 Pod 日志
-        echo "--- Pod Logs ---"
-        PODS=$(kubectl get pods -l app=user-registration-app -o jsonpath='{.items[*].metadata.name}')
-        for POD in $PODS; do
-          echo "Logs for $POD:"
-          kubectl logs $POD --tail=20 || echo "Cannot get logs for $POD"
-        done
         
         echo "✅ Application verification completed"
 
