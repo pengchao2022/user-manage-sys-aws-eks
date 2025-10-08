@@ -13,11 +13,6 @@ output "cluster_certificate_authority" {
   value       = aws_eks_cluster.main.certificate_authority[0].data
 }
 
-output "cluster_oidc_provider_arn" {
-  description = "The ARN of the OIDC Provider"
-  value       = aws_eks_cluster.main.identity[0].oidc[0].issuer
-}
-
 output "cluster_version" {
   description = "Kubernetes cluster version"
   value       = aws_eks_cluster.main.version
