@@ -4,6 +4,11 @@ resource "random_password" "db_password" {
   special = false
 }
 
+# 获取 OIDC provider 数据
+data "aws_iam_openid_connect_provider" "cluster" {
+  url = module.eks.cluster_oidc_issuer_url
+}
+
 # VPC Module
 module "vpc" {
   source = "./vpc"
@@ -61,4 +66,16 @@ module "ecr" {
   repository_name   = "${var.project_name}-app"
   eks_node_role_arn = module.iam.eks_node_group_role_arn
 
+}
+
+
+# ALB Controller Module
+module "alb_controller" {
+  source = "./alb-controller"
+
+  cluster_name             = module.eks.cluster_name
+  cluster_oidc_issuer_url  = module.eks.cluster_oidc_issuer_url
+  cluster_oidc_provider_arn = data.aws_iam_openid_connect_provider.cluster.arn
+  environment              = var.environment
+  project_name             = var.project_name
 }

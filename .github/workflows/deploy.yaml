@@ -33,6 +33,7 @@ jobs:
       db_host: ${{ steps.set-outputs.outputs.db_host }}
       db_password: ${{ steps.set-outputs.outputs.db_password }}
       ecr_repository: ${{ steps.set-outputs.outputs.ecr_repository }}
+      alb_controller_role_arn: ${{ steps.set-outputs.outputs.alb_controller_role_arn }}
       environment: ${{ steps.env.outputs.environment }}
 
     steps:
@@ -102,6 +103,7 @@ jobs:
         DB_ENDPOINT=$(terraform output -raw database_endpoint)
         DB_PASSWORD=$(terraform output -raw database_password)
         ECR_REPOSITORY=$(terraform output -raw ecr_repository_name 2>/dev/null || echo "${{ env.ECR_REPOSITORY }}")
+        ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn 2>/dev/null || echo "NOT_CONFIGURED")
         
         # 从端点中提取主机名（去掉端口号）
         DB_HOST=$(echo "$DB_ENDPOINT" | cut -d: -f1)
@@ -111,12 +113,14 @@ jobs:
         echo "db_host=$DB_HOST" >> $GITHUB_OUTPUT
         echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
         echo "ecr_repository=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
+        echo "alb_controller_role_arn=$ALB_ROLE_ARN" >> $GITHUB_OUTPUT
         
         echo "Infrastructure outputs:"
         echo "Cluster: $CLUSTER_NAME"
         echo "DB Endpoint: $DB_ENDPOINT"
         echo "DB Host: $DB_HOST"
         echo "ECR Repository: $ECR_REPOSITORY"
+        echo "ALB Controller Role ARN: $ALB_ROLE_ARN"
 
     - name: Set Job Outputs
       id: set-outputs
@@ -126,6 +130,7 @@ jobs:
         echo "db_host=${{ steps.tf-outputs.outputs.db_host }}" >> $GITHUB_OUTPUT
         echo "db_password=${{ steps.tf-outputs.outputs.db_password }}" >> $GITHUB_OUTPUT
         echo "ecr_repository=${{ steps.tf-outputs.outputs.ecr_repository }}" >> $GITHUB_OUTPUT
+        echo "alb_controller_role_arn=${{ steps.tf-outputs.outputs.alb_controller_role_arn }}" >> $GITHUB_OUTPUT
 
     - name: Verify Infrastructure
       run: |
@@ -186,6 +191,7 @@ jobs:
         echo "DB Endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
         echo "DB Host: ${{ needs.create-infrastructure.outputs.db_host }}"
         echo "ECR Repository: ${{ needs.create-infrastructure.outputs.ecr_repository }}"
+        echo "ALB Controller Role ARN: ${{ needs.create-infrastructure.outputs.alb_controller_role_arn }}"
         echo "DB Password: [hidden]"
 
     - name: Checkout code
@@ -232,6 +238,56 @@ jobs:
         # 验证 CNI pods 重新启动
         kubectl get pods -n kube-system -l k8s-app=aws-node
         echo "✅ Network fixes applied"
+
+    - name: Deploy ALB Ingress Controller
+      run: |
+        echo "🚀 Deploying ALB Ingress Controller..."
+        
+        ALB_ROLE_ARN="${{ needs.create-infrastructure.outputs.alb_controller_role_arn }}"
+        CLUSTER_NAME="${{ needs.create-infrastructure.outputs.cluster_name }}"
+        
+        echo "ALB Role ARN: $ALB_ROLE_ARN"
+        echo "Cluster Name: $CLUSTER_NAME"
+        
+        if [ "$ALB_ROLE_ARN" = "NOT_CONFIGURED" ]; then
+          echo "⚠️ ALB Controller not configured in Terraform, skipping deployment"
+          exit 0
+        fi
+        
+        # 检查是否已存在 ALB Controller
+        EXISTING_CONTROLLER=$(kubectl get deployment -n kube-system aws-load-balancer-controller 2>/dev/null | wc -l)
+        
+        if [ "$EXISTING_CONTROLLER" -gt 1 ]; then
+          echo "🔄 ALB Controller already exists, updating..."
+          kubectl delete deployment -n kube-system aws-load-balancer-controller
+          sleep 10
+        fi
+        
+        # 部署 RBAC
+        echo "=== Deploying RBAC ==="
+        kubectl apply -f k8s/alb-controller-rbac.yaml
+        
+        # 部署 ServiceAccount（替换 ARN）
+        echo "=== Deploying ServiceAccount ==="
+        cat k8s/alb-controller-serviceaccount.yaml | \
+          sed "s|ALB_CONTROLLER_ROLE_ARN|$ALB_ROLE_ARN|g" | \
+          kubectl apply -f -
+        
+        # 部署 Deployment（替换集群名称）
+        echo "=== Deploying ALB Controller ==="
+        cat k8s/alb-controller-deployment.yaml | \
+          sed "s|CLUSTER_NAME|$CLUSTER_NAME|g" | \
+          kubectl apply -f -
+        
+        # 等待 ALB Controller 启动
+        echo "=== Waiting for ALB Controller to start ==="
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=300s
+        
+        # 检查 ALB Controller 状态
+        echo "=== ALB Controller Status ==="
+        kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
+        
+        echo "✅ ALB Ingress Controller deployed successfully"
 
     - name: Login to Amazon ECR
       id: login-ecr
@@ -392,21 +448,72 @@ jobs:
         
         echo "✅ Application verification completed"
 
-    - name: Get Application URL
+    - name: Get Application URL with ALB Wait
       id: url
       run: |
-        # Wait for ALB to be provisioned
-        echo "Waiting for ALB provisioning..."
-        sleep 60
+        echo "🌐 Waiting for ALB provisioning..."
         
-        INGRESS_HOST=$(kubectl get ingress user-registration-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        # 等待 ALB 创建（最长 10 分钟）
+        echo "This may take 2-10 minutes..."
+        MAX_WAIT=600
+        WAITED=0
         
-        if [ -n "$INGRESS_HOST" ]; then
-          echo "application_url=http://$INGRESS_HOST" >> $GITHUB_OUTPUT
-          echo "🎊 Application URL: http://$INGRESS_HOST"
-        else
-          echo "Application URL not available yet - ALB may still be provisioning"
+        while [ $WAITED -lt $MAX_WAIT ]; do
+          INGRESS_HOST=$(kubectl get ingress user-registration-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          
+          if [ -n "$INGRESS_HOST" ]; then
+            echo "🎉 ALB Successfully Provisioned!"
+            echo "application_url=http://$INGRESS_HOST" >> $GITHUB_OUTPUT
+            echo "🌐 Application URL: http://$INGRESS_HOST"
+            
+            # 测试应用是否响应
+            echo "Testing application response..."
+            sleep 30  # 给 ALB 一些时间开始路由流量
+            curl -f http://$INGRESS_HOST/health && echo "✅ Application is responding!" || echo "⚠️ Application URL created but not responding yet"
+            break
+          fi
+          
+          # 每 30 秒显示进度
+          if [ $((WAITED % 60)) -eq 0 ]; then
+            echo "⏳ Still waiting... ($((WAITED/60))m $((WAITED%60))s / $((MAX_WAIT/60))m)"
+            
+            # 显示 Ingress 状态
+            echo "Current Ingress status:"
+            kubectl get ingress user-registration-app-ingress -o wide
+            
+            # 显示 ALB Controller 日志（最后几行）
+            echo "ALB Controller logs:"
+            kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller --tail=5 2>/dev/null || echo "No ALB Controller logs available"
+          fi
+          
+          sleep 30
+          WAITED=$((WAITED + 30))
+        done
+        
+        if [ -z "$INGRESS_HOST" ]; then
+          echo "❌ ALB not provisioned within $((MAX_WAIT/60)) minutes"
+          echo "=== Debug Information ==="
+          kubectl describe ingress user-registration-app-ingress
+          kubectl get events --field-selector involvedObject.kind=Ingress --sort-by='.lastTimestamp'
+          echo "=== ALB Controller Status ==="
+          kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
+          echo "You can check later with: kubectl get ingress"
         fi
+
+    - name: Provide Alternative Access Methods
+      if: steps.url.outputs.application_url == ''
+      run: |
+        echo "🔧 Alternative access methods:"
+        echo ""
+        echo "1. Port Forwarding (immediate access):"
+        echo "   kubectl port-forward svc/user-registration-app-service 8080:80"
+        echo "   Then visit: http://localhost:8080"
+        echo ""
+        echo "2. Check ALB status later:"
+        echo "   kubectl get ingress"
+        echo ""
+        echo "3. Check ALB controller logs:"
+        echo "   kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller"
 
     - name: Deployment Summary
       run: |
@@ -424,5 +531,9 @@ jobs:
         echo "Deployment Time: $(date)"
         if [ -n "${{ steps.url.outputs.application_url }}" ]; then
           echo "🌐 Application URL: ${{ steps.url.outputs.application_url }}"
+        else
+          echo "🌐 Application URL: Not available yet (ALB still provisioning)"
+          echo "   Use: kubectl port-forward svc/user-registration-app-service 8080:80"
+          echo "   Then visit: http://localhost:8080"
         fi
         echo ""
