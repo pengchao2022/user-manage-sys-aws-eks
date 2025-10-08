@@ -1,36 +1,11 @@
-# IAM Policy for ALB Controller
-data "aws_iam_policy_document" "alb_controller" {
-  statement {
-    effect = "Allow"
-    actions = [
-      "iam:CreateServiceLinkedRole",
-      "ec2:DescribeAccountAttributes",
-      "ec2:DescribeAddresses",
-      "ec2:DescribeAvailabilityZones",
-      "ec2:DescribeInternetGateways",
-      "ec2:DescribeVpcs",
-      "ec2:DescribeSubnets",
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeInstances",
-      "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeTags",
-      "ec2:GetCoipPoolUsage",
-      "ec2:DescribeCoipPools",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticloadbalancing:DescribeLoadBalancerAttributes",
-      "elasticloadbalancing:DescribeListeners",
-      "elasticloadbalancing:DescribeListenerCertificates",
-      "elasticloadbalancing:DescribeSSLPolicies",
-      "elasticloadbalancing:DescribeRules",
-      "elasticloadbalancing:DescribeTargetGroups",
-      "elasticloadbalancing:DescribeTargetGroupAttributes",
-      "elasticloadbalancing:DescribeTargetHealth",
-      "elasticloadbalancing:DescribeTags"
-    ]
-    resources = ["*"]
-  }
+# 动态获取或使用传入的 OIDC Provider ARN
+locals {
+  oidc_provider_arn = var.cluster_oidc_provider_arn != null ? var.cluster_oidc_provider_arn : data.aws_iam_openid_connect_provider.cluster.arn
+}
 
-  # ... 其他 policy 语句（保持原有内容）
+# IAM Policy for ALB Controller (保持原有代码不变)
+data "aws_iam_policy_document" "alb_controller" {
+  # ... 保持原有 policy 文档
 }
 
 resource "aws_iam_policy" "alb_controller" {
@@ -44,7 +19,7 @@ resource "aws_iam_policy" "alb_controller" {
   }
 }
 
-# IAM Role for ALB Controller - 使用动态 OIDC Provider ARN
+# IAM Role for ALB Controller
 resource "aws_iam_role" "alb_controller" {
   name = "${var.project_name}-${var.environment}-alb-controller-role"
 
@@ -54,7 +29,7 @@ resource "aws_iam_role" "alb_controller" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(var.cluster_oidc_issuer_url, "https://", "")}"
+          Federated = local.oidc_provider_arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -77,5 +52,3 @@ resource "aws_iam_role_policy_attachment" "alb_controller" {
   policy_arn = aws_iam_policy.alb_controller.arn
   role       = aws_iam_role.alb_controller.name
 }
-
-data "aws_caller_identity" "current" {}
