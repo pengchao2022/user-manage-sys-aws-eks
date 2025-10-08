@@ -1,10 +1,18 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 import psycopg2
 import os
+import time
 from datetime import datetime
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+# 使用环境变量或生成默认密钥
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-for-development-only')
 
 # Database configuration
 DB_CONFIG = {
@@ -15,17 +23,24 @@ DB_CONFIG = {
     'port': os.environ.get('DB_PORT', '5432')
 }
 
-def get_db_connection():
-    """Create and return a database connection"""
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        return conn
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        return None
+def get_db_connection(max_retries=5, retry_delay=5):
+    """Create and return a database connection with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            logger.info(f"Successfully connected to database on attempt {attempt + 1}")
+            return conn
+        except Exception as e:
+            logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"All database connection attempts failed: {e}")
+                return None
 
 def init_db():
-    """Initialize database tables"""
+    """Initialize database tables with retry logic"""
     conn = get_db_connection()
     if conn:
         try:
@@ -42,11 +57,13 @@ def init_db():
                     )
                 ''')
                 conn.commit()
-                print("Database initialized successfully")
+                logger.info("Database initialized successfully")
         except Exception as e:
-            print(f"Database initialization error: {e}")
+            logger.error(f"Database initialization error: {e}")
         finally:
             conn.close()
+    else:
+        logger.error("Failed to initialize database: no connection")
 
 @app.route('/')
 def index():
@@ -83,7 +100,7 @@ def register():
                 flash('Email already exists. Please use a different email.', 'error')
             except Exception as e:
                 flash('An error occurred. Please try again.', 'error')
-                print(f"Database error: {e}")
+                logger.error(f"Database error: {e}")
             finally:
                 conn.close()
         else:
@@ -107,17 +124,41 @@ def users():
             return render_template('users.html', users=users)
         except Exception as e:
             flash('Error retrieving users', 'error')
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}")
         finally:
             conn.close()
     return render_template('users.html', users=[])
 
 @app.route('/health')
 def health():
-    """Health check endpoint"""
-    return {'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()}
+    """Health check endpoint with database check"""
+    try:
+        # 测试数据库连接
+        conn = get_db_connection(max_retries=1, retry_delay=1)
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1')
+            conn.close()
+            db_status = 'healthy'
+        else:
+            db_status = 'unhealthy'
+    except Exception as e:
+        logger.error(f"Health check database error: {e}")
+        db_status = 'unhealthy'
+
+    return {
+        'status': 'healthy',
+        'database': db_status,
+        'timestamp': datetime.utcnow().isoformat()
+    }
 
 if __name__ == '__main__':
-    # Initialize database on startup
+    # Initialize database on startup with retry
+    logger.info("Starting application...")
     init_db()
+    
+    # Warn if using default secret key in production
+    if os.environ.get('SECRET_KEY') is None and os.environ.get('FLASK_ENV') == 'production':
+        logger.warning("⚠️ WARNING: Using default secret key in production!")
+    
     app.run(host='0.0.0.0', port=5000, debug=False)
