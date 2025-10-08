@@ -18,7 +18,7 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-for-development-on
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'localhost'),
     'database': os.environ.get('DB_NAME', 'userdb'),
-    'user': os.environ.get('DB_USER', 'admin'),
+    'user': os.environ.get('DB_USER', 'appuser'),
     'password': os.environ.get('DB_PASSWORD', 'password'),
     'port': os.environ.get('DB_PORT', '5432')
 }

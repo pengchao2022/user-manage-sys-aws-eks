@@ -8,4 +8,4 @@ eks_instance_types = ["t3.micro"]
 # RDS Configuration
 db_instance_class = "db.t3.micro"
 database_name     = "userdb"
-database_username = "admin"
+database_username = "appuser"
