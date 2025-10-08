@@ -73,9 +73,9 @@ module "ecr" {
 module "alb_controller" {
   source = "./alb-controller"
 
-  cluster_name             = module.eks.cluster_name
-  cluster_oidc_issuer_url  = module.eks.cluster_oidc_issuer_url
+  cluster_name              = module.eks.cluster_name
+  cluster_oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
   cluster_oidc_provider_arn = data.aws_iam_openid_connect_provider.cluster.arn
-  environment              = var.environment
-  project_name             = var.project_name
+  environment               = var.environment
+  project_name              = var.project_name
 }
