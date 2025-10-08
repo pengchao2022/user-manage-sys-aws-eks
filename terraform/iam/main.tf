@@ -79,7 +79,7 @@ resource "aws_iam_policy" "alb_controller_policy" {
           "elasticloadbalancing:CreateTargetGroup",
           "elasticloadbalancing:CreateLoadBalancer",
           "elasticloadbalancing:CreateListener",
-          "elasticloadbalancing:AddTags",
+          "elasticloadbalancing:AddTags", # 添加 AddTags 权限
           "elasticloadbalancing:DeleteTargetGroup",
           "elasticloadbalancing:DeleteLoadBalancer",
           "elasticloadbalancing:DeleteListener",
@@ -96,4 +96,10 @@ resource "aws_iam_policy" "alb_controller_policy" {
 resource "aws_iam_role_policy_attachment" "alb_controller_custom" {
   policy_arn = aws_iam_policy.alb_controller_policy.arn
   role       = aws_iam_role.eks_node_group.name
+}
+
+# 为 EKS Node Group 角色添加额外的 ElasticLoadBalancing 权限，确保它可以进行 ALB 操作
+resource "aws_iam_role_policy_attachment" "eks_node_group_elb_permissions" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess" # 确保具备完整的负载均衡权限
 }
