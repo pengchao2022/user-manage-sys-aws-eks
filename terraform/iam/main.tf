@@ -1,6 +1,6 @@
 # EKS Cluster Role
 resource "aws_iam_role" "eks_cluster_role" {
-  name = "${var.project_name}-${var.environment}-eks-cluster-role"
+  name = "${replace(var.project_name, "-", "")}${var.environment}EksClusterRole"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -24,7 +24,7 @@ resource "aws_iam_role" "eks_cluster_role" {
 
 # EKS Node Group Role
 resource "aws_iam_role" "eks_node_group_role" {
-  name = "${var.project_name}-${var.environment}-eks-node-group-role"
+  name = "${replace(var.project_name, "-", "")}${var.environment}EksNodeGroupRole"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -77,7 +77,7 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
 resource "aws_iam_policy" "ecr_pull_policy" {
   count = var.create_ecr_policy ? 1 : 0
 
-  name        = "${var.project_name}-${var.environment}-ecr-pull-policy"
+  name        = "${replace(var.project_name, "-", "")}${var.environment}EcrPullPolicy"
   description = "Policy for ECR image pull access"
 
   policy = jsonencode({
@@ -106,44 +106,6 @@ resource "aws_iam_role_policy_attachment" "ecr_pull" {
 
   role       = aws_iam_role.eks_node_group_role.name
   policy_arn = aws_iam_policy.ecr_pull_policy[0].arn
-}
-
-# Optional: S3 Access Policy
-resource "aws_iam_policy" "s3_access_policy" {
-  count = var.create_s3_policy && length(var.s3_bucket_arns) > 0 ? 1 : 0
-
-  name        = "${var.project_name}-${var.environment}-s3-access-policy"
-  description = "Policy for S3 bucket access"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:ListBucket"
-        ]
-        Resource = concat(
-          var.s3_bucket_arns,
-          [for arn in var.s3_bucket_arns : "${arn}/*"]
-        )
-      }
-    ]
-  })
-
-  tags = merge({
-    Environment = var.environment
-    Project     = var.project_name
-  }, var.tags)
-}
-
-resource "aws_iam_role_policy_attachment" "s3_access" {
-  count = var.create_s3_policy && length(var.s3_bucket_arns) > 0 ? 1 : 0
-
-  role       = aws_iam_role.eks_node_group_role.name
-  policy_arn = aws_iam_policy.s3_access_policy[0].arn
 }
 
 # Additional custom policies
