@@ -72,11 +72,37 @@ resource "aws_iam_role_policy_attachment" "alb_controller_fallback" {
   depends_on = [aws_iam_role_policy_attachment.alb_controller_managed]
 }
 
-# 删除之前自定义的 ALB Controller 策略和附件
-# resource "aws_iam_policy" "alb_controller" {
-#   ... (注释掉或删除这个自定义策略)
-# }
+# 创建自定义 ALB Controller 策略（如果需要）
+resource "aws_iam_policy" "alb_controller_policy" {
+  name        = "alb-controller-policy"
+  description = "Custom policy for ALB Controller"
 
-# resource "aws_iam_role_policy_attachment" "alb_controller" {
-#   ... (注释掉或删除这个自定义策略附件)
-# }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = [
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:CreateTargetGroup",
+          "elasticloadbalancing:CreateLoadBalancer",
+          "elasticloadbalancing:CreateListener",
+          "elasticloadbalancing:AddTags", 
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:RemoveTags"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "alb_controller_custom" {
+  policy_arn = aws_iam_policy.alb_controller_policy.arn
+  role       = aws_iam_role.eks_node_group.name
+}
+
