@@ -67,7 +67,7 @@ resource "aws_iam_role_policy_attachment" "alb_controller_managed" {
 resource "aws_iam_role_policy_attachment" "alb_controller_fallback" {
   role       = aws_iam_role.eks_node_group.name
   policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
-  
+
   # 只有在 AWS 管理策略不存在时才使用这个
   depends_on = [aws_iam_role_policy_attachment.alb_controller_managed]
 }
