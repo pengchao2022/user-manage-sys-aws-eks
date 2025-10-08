@@ -72,5 +72,5 @@ module "alb_ingress_controller" {
   vpc_id           = module.vpc.vpc_id
 
   # 可选：如想固定 Helm chart 版本
-  chart_version    = "1.9.2"
+  chart_version = "1.9.2"
 }
