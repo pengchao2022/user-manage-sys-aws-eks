@@ -73,13 +73,13 @@ resource "aws_iam_policy" "alb_controller_policy" {
     Statement = [
       {
         Action = [
-          "elasticloadbalancing:DescribeLoadBalancers", # 权限修改，增加 ALB 查询权限
+          "elasticloadbalancing:DescribeLoadBalancers",
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:CreateTargetGroup",
           "elasticloadbalancing:CreateLoadBalancer",
           "elasticloadbalancing:CreateListener",
-          "elasticloadbalancing:AddTags", # 添加 AddTags 权限
+          "elasticloadbalancing:AddTags",
           "elasticloadbalancing:DeleteTargetGroup",
           "elasticloadbalancing:DeleteLoadBalancer",
           "elasticloadbalancing:DeleteListener",
@@ -98,8 +98,36 @@ resource "aws_iam_role_policy_attachment" "alb_controller_custom" {
   role       = aws_iam_role.eks_node_group.name
 }
 
-# 为 EKS Node Group 角色添加额外的 ElasticLoadBalancing 权限，确保它可以进行 ALB 操作
-resource "aws_iam_role_policy_attachment" "eks_node_group_elb_permissions" {
+# 为 EKS Node Group 角色添加 EC2 权限，以便 ALB 控制器可以获取可用区和子网信息
+resource "aws_iam_role_policy_attachment" "eks_node_group_ec2_permissions" {
   role       = aws_iam_role.eks_node_group.name
-  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess" # 确保具备完整的负载均衡权限
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess" # 提供 EC2 读取权限
+}
+
+# 或者，创建一个自定义策略，授予更精细的权限
+resource "aws_iam_policy" "ec2_describe_policy" {
+  name        = "ec2-describe-policy"
+  description = "Custom policy for EC2 Describe operations"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeInstances",
+          "ec2:DescribeSecurityGroups"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# 将自定义 EC2 权限策略附加到 EKS Node Group 角色
+resource "aws_iam_role_policy_attachment" "eks_node_group_ec2_permissions_custom" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = aws_iam_policy.ec2_describe_policy.arn
 }
