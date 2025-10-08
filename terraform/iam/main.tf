@@ -73,7 +73,7 @@ resource "aws_iam_policy" "alb_controller_policy" {
     Statement = [
       {
         Action = [
-          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeLoadBalancers", # 权限修改，增加 ALB 查询权限
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:CreateTargetGroup",
