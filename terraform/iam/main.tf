@@ -1,29 +1,39 @@
-# EKS Cluster IAM Role
+# EKS Cluster IAM Role（OIDC 配置）
 resource "aws_iam_role" "eks_cluster" {
   name = "${var.cluster_name}-cluster"
 
   assume_role_policy = jsonencode({
     Statement = [{
-      Action = "sts:AssumeRole"
+      Action = "sts:AssumeRoleWithWebIdentity"
       Effect = "Allow"
       Principal = {
-        Service = "eks.amazonaws.com"
+        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}"
+      }
+      Condition = {
+        StringEquals = {
+          "oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:eks-admin"
+        }
       }
     }]
     Version = "2012-10-17"
   })
 }
 
-# EKS Node Group IAM Role
+# EKS Node Group IAM Role（OIDC 配置）
 resource "aws_iam_role" "eks_node_group" {
   name = "${var.cluster_name}-node-group"
 
   assume_role_policy = jsonencode({
     Statement = [{
-      Action = "sts:AssumeRole"
+      Action = "sts:AssumeRoleWithWebIdentity"
       Effect = "Allow"
       Principal = {
-        Service = "ec2.amazonaws.com"
+        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}"
+      }
+      Condition = {
+        StringEquals = {
+          "oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:alb-ingress-controller"
+        }
       }
     }]
     Version = "2012-10-17"
@@ -98,26 +108,25 @@ resource "aws_iam_role_policy_attachment" "alb_controller_custom" {
   role       = aws_iam_role.eks_node_group.name
 }
 
-# 为 EKS Node Group 角色添加 EC2 权限，以便 ALB 控制器可以获取可用区和子网信息
-resource "aws_iam_role_policy_attachment" "eks_node_group_ec2_permissions" {
+# 为 EKS Node Group 角色添加额外的 ElasticLoadBalancing 权限，确保它可以进行 ALB 操作
+resource "aws_iam_role_policy_attachment" "eks_node_group_elb_permissions" {
   role       = aws_iam_role.eks_node_group.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess" # 提供 EC2 读取权限
+  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
 }
 
-# 或者，创建一个自定义策略，授予更精细的权限
-resource "aws_iam_policy" "ec2_describe_policy" {
-  name        = "ec2-describe-policy"
-  description = "Custom policy for EC2 Describe operations"
+# 为 EKS Node Group 角色添加 EC2 创建安全组的权限
+resource "aws_iam_policy" "ec2_create_security_group_policy" {
+  name        = "ec2-create-security-group-policy"
+  description = "Allow EKS Node Group to create EC2 Security Groups"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Action = [
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeInstances",
-          "ec2:DescribeSecurityGroups"
+          "ec2:CreateSecurityGroup",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress"
         ]
         Effect   = "Allow"
         Resource = "*"
@@ -126,8 +135,13 @@ resource "aws_iam_policy" "ec2_describe_policy" {
   })
 }
 
-# 将自定义 EC2 权限策略附加到 EKS Node Group 角色
-resource "aws_iam_role_policy_attachment" "eks_node_group_ec2_permissions_custom" {
+resource "aws_iam_role_policy_attachment" "eks_node_group_create_security_group" {
   role       = aws_iam_role.eks_node_group.name
-  policy_arn = aws_iam_policy.ec2_describe_policy.arn
+  policy_arn = aws_iam_policy.ec2_create_security_group_policy.arn
+}
+
+# 为 EKS Node Group 角色添加 VPC 相关权限
+resource "aws_iam_role_policy_attachment" "eks_node_group_vpc_permissions" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonVPCFullAccess"
 }

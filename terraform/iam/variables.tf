@@ -50,3 +50,13 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "region" {
+  description = "AWS region"
+  type        = string
+}
+
+variable "cluster_oidc_issuer" {
+  description = "The OIDC issuer URL for the EKS cluster"
+  type        = string
+}
