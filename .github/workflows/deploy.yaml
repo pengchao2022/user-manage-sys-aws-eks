@@ -33,7 +33,6 @@ jobs:
       db_host: ${{ steps.set-outputs.outputs.db_host }}
       db_password: ${{ steps.set-outputs.outputs.db_password }}
       ecr_repository: ${{ steps.set-outputs.outputs.ecr_repository }}
-      alb_controller_role_arn: ${{ steps.set-outputs.outputs.alb_controller_role_arn }}
       vpc_id: ${{ steps.set-outputs.outputs.vpc_id }}
       environment: ${{ steps.env.outputs.environment }}
 
@@ -104,8 +103,7 @@ jobs:
         DB_ENDPOINT=$(terraform output -raw database_endpoint)
         DB_PASSWORD=$(terraform output -raw database_password)
         ECR_REPOSITORY=$(terraform output -raw ecr_repository_name 2>/dev/null || echo "${{ env.ECR_REPOSITORY }}")
-        ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn 2>/dev/null || echo "NOT_CONFIGURED")
-        VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || echo "NOT_CONFIGURED")
+        VPC_ID=$(terraform output -raw vpc_id)
         
         # 从端点中提取主机名（去掉端口号）
         DB_HOST=$(echo "$DB_ENDPOINT" | cut -d: -f1)
@@ -115,7 +113,6 @@ jobs:
         echo "db_host=$DB_HOST" >> $GITHUB_OUTPUT
         echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
         echo "ecr_repository=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
-        echo "alb_controller_role_arn=$ALB_ROLE_ARN" >> $GITHUB_OUTPUT
         echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
         
         echo "Infrastructure outputs:"
@@ -123,7 +120,6 @@ jobs:
         echo "DB Endpoint: $DB_ENDPOINT"
         echo "DB Host: $DB_HOST"
         echo "ECR Repository: $ECR_REPOSITORY"
-        echo "ALB Controller Role ARN: $ALB_ROLE_ARN"
         echo "VPC ID: $VPC_ID"
 
     - name: Set Job Outputs
@@ -134,7 +130,6 @@ jobs:
         echo "db_host=${{ steps.tf-outputs.outputs.db_host }}" >> $GITHUB_OUTPUT
         echo "db_password=${{ steps.tf-outputs.outputs.db_password }}" >> $GITHUB_OUTPUT
         echo "ecr_repository=${{ steps.tf-outputs.outputs.ecr_repository }}" >> $GITHUB_OUTPUT
-        echo "alb_controller_role_arn=${{ steps.tf-outputs.outputs.alb_controller_role_arn }}" >> $GITHUB_OUTPUT
         echo "vpc_id=${{ steps.tf-outputs.outputs.vpc_id }}" >> $GITHUB_OUTPUT
 
     - name: Verify Infrastructure
@@ -196,7 +191,6 @@ jobs:
         echo "DB Endpoint: ${{ needs.create-infrastructure.outputs.db_endpoint }}"
         echo "DB Host: ${{ needs.create-infrastructure.outputs.db_host }}"
         echo "ECR Repository: ${{ needs.create-infrastructure.outputs.ecr_repository }}"
-        echo "ALB Controller Role ARN: ${{ needs.create-infrastructure.outputs.alb_controller_role_arn }}"
         echo "VPC ID: ${{ needs.create-infrastructure.outputs.vpc_id }}"
         echo "DB Password: [hidden]"
 
@@ -245,7 +239,6 @@ jobs:
         kubectl get pods -n kube-system -l k8s-app=aws-node
         echo "✅ Network fixes applied"
 
-    # ========== 新增：部署 ALB Controller ==========
     - name: Deploy ALB Controller via Helm
       id: deploy-alb
       run: |
@@ -330,7 +323,6 @@ jobs:
         
         echo "✅ ALB Controller verification completed"
 
-    # ========== 继续原有步骤 ==========
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
