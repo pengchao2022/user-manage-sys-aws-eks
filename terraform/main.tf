@@ -38,13 +38,16 @@ module "eks" {
   instance_types      = var.eks_instance_types
 }
 
-# Kubernetes Provider 配置
+# Kubernetes Provider 配置 - 必须在 EKS 模块之后
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
   token                  = data.aws_eks_cluster_auth.cluster.token
 }
 
+data "aws_eks_cluster_auth" "cluster" {
+  name = module.eks.cluster_name
+}
 
 # RDS Module
 module "rds" {
@@ -80,4 +83,8 @@ module "alb_ingress_controller" {
 
   # 可选：如想固定 Helm chart 版本
   chart_version = "1.9.2"
+
+  depends_on = [
+    module.eks
+  ]
 }
