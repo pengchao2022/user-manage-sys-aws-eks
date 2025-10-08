@@ -18,9 +18,9 @@ module "vpc" {
 module "iam" {
   source = "./iam"
 
-  environment  = var.environment
-  project_name = var.project_name
-  cluster_name = "${var.project_name}-${var.environment}"
+  cluster_oidc_issuer = "https://oidc.eks.us-east-1.amazonaws.com/id/D185B78F05CCE2E39037B3D3541F9579" # 替换为你的 OIDC 发行者 URL
+  cluster_name        = "user-registration-staging"
+  aws_region          = var.aws_region
 }
 
 # EKS Module
@@ -68,4 +68,3 @@ module "ecr" {
   repository_name   = "${var.project_name}-app"
   eks_node_role_arn = module.iam.eks_node_group_role_arn
 }
-

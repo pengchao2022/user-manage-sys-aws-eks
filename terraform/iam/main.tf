@@ -11,7 +11,7 @@ resource "aws_iam_role" "eks_cluster" {
       }
       Condition = {
         StringEquals = {
-          "oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:eks-admin"
+          "oidc.eks.${var.aws_region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:eks-admin"
         }
       }
     }]
@@ -32,7 +32,7 @@ resource "aws_iam_role" "eks_node_group" {
       }
       Condition = {
         StringEquals = {
-          "oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:alb-ingress-controller"
+          "oidc.eks.${var.aws_region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:alb-ingress-controller"
         }
       }
     }]

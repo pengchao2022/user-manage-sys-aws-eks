@@ -51,12 +51,17 @@ variable "tags" {
   default     = {}
 }
 
-variable "region" {
+variable "aws_region" {
   description = "AWS region"
   type        = string
 }
 
 variable "cluster_oidc_issuer" {
   description = "The OIDC issuer URL for the EKS cluster"
+  type        = string
+}
+
+variable "cluster_oidc_issuer" {
+  description = "OIDC issuer URL for the EKS cluster"
   type        = string
 }
