@@ -60,9 +60,3 @@ resource "aws_iam_role_policy_attachment" "alb_controller" {
   role       = aws_iam_role.alb_controller.name
   policy_arn = aws_iam_policy.alb_controller.arn
 }
-
-# 输出 IAM Role ARN，用于 CICD
-output "iam_role_arn" {
-  description = "ARN of the IAM role for ALB Controller"
-  value       = aws_iam_role.alb_controller.arn
-}
