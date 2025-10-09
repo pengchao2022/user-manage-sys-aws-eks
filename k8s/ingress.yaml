@@ -14,6 +14,17 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
+  - host: myuser.com  # 添加你的域名
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: user-registration-app-service
+            port:
+              number: 80
+  # 可选：保留无主机名的规则作为回退
   - http:
       paths:
       - path: /
