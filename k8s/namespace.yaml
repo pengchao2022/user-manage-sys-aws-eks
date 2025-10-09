@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: user-register
+  labels:
+    name: user-register
+    environment: staging
+    project: user-registration
+    app: user-registration
+    managed-by: github-actions

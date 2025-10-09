@@ -360,68 +360,104 @@ jobs:
     - name: Cleanup Existing Resources
       run: |
         echo "🧹 Cleaning up existing resources before deployment..."
-        # 删除所有应用相关资源
-        kubectl delete deployment user-registration-app --ignore-not-found=true --timeout=30s || true
-        kubectl delete service user-registration-app-service --ignore-not-found=true --timeout=30s || true
-        kubectl delete ingress user-registration-app-ingress --ignore-not-found=true --timeout=30s || true
-        kubectl delete configmap user-registration-app-config --ignore-not-found=true --timeout=30s || true
-        kubectl delete secret database-secret --ignore-not-found=true --timeout=30s || true
-        kubectl delete secret app-secret --ignore-not-found=true --timeout=30s || true
+        # 删除所有应用相关资源（指定命名空间）
+        kubectl delete deployment user-registration-app -n user-register --ignore-not-found=true --timeout=30s || true
+        kubectl delete service user-registration-app-service -n user-register --ignore-not-found=true --timeout=30s || true
+        kubectl delete ingress user-registration-app-ingress -n user-register --ignore-not-found=true --timeout=30s || true
+        kubectl delete configmap user-registration-app-config -n user-register --ignore-not-found=true --timeout=30s || true
+        kubectl delete secret database-secret -n user-register --ignore-not-found=true --timeout=30s || true
+        kubectl delete secret app-secret -n user-register --ignore-not-found=true --timeout=30s || true
         
         echo "✅ Cleanup completed"
         sleep 10  # 等待资源完全清理
 
-    - name: Create Kubernetes Secrets - FIXED
+    # ========== 新增：从 namespace.yaml 文件部署命名空间 ==========
+    - name: Check and Deploy Namespace
       run: |
-        echo "🔧 Creating Kubernetes secrets - FIXED VERSION..."
+        echo "📁 Checking for namespace.yaml file..."
         
-        # 使用明确的变量，避免任何可能的转义问题
+        if [ -f "k8s/namespace.yaml" ]; then
+          echo "✅ Found namespace.yaml file, deploying namespace..."
+          kubectl apply -f k8s/namespace.yaml
+          echo "✅ Namespace deployed from namespace.yaml"
+          
+          # 验证命名空间
+          echo "=== Namespace Status ==="
+          kubectl get namespace user-register -o wide
+        else
+          echo "❌ ERROR: namespace.yaml file not found in k8s/ directory"
+          echo "Please create a namespace.yaml file with the following content:"
+          echo "---"
+          echo "apiVersion: v1"
+          echo "kind: Namespace"
+          echo "metadata:"
+          echo "  name: user-register"
+          echo "  labels:"
+          echo "    name: user-register"
+          echo "    environment: ${{ needs.create-infrastructure.outputs.environment }}"
+          echo "    project: ${{ env.PROJECT_NAME }}"
+          echo "    app: user-registration"
+          echo "    managed-by: github-actions"
+          echo "---"
+          echo ""
+          echo "Create the file at k8s/namespace.yaml and commit it to your repository."
+          exit 1
+        fi
+
+    - name: Create Kubernetes Secrets
+      run: |
+        echo "🔧 Creating Kubernetes secrets in user-register namespace..."
+        
+        # 使用明确的变量
         DB_HOST="${{ needs.create-infrastructure.outputs.db_host }}"
         DB_PASSWORD="${{ needs.create-infrastructure.outputs.db_password }}"
         
         echo "Using values:"
         echo "DB_HOST: $DB_HOST"
-        echo "DB_PASSWORD: [hidden]"
+        echo "DB Password: [hidden]"
         
-        # 方法1: 直接创建 secret（不使用 dry-run）
-        echo "Creating database-secret..."
+        # 创建 database-secret（指定命名空间）
+        echo "Creating database-secret in user-register namespace..."
         kubectl create secret generic database-secret \
+          --namespace=user-register \
           --from-literal=host="$DB_HOST" \
           --from-literal=username="appuser" \
           --from-literal=password="$DB_PASSWORD"
         
         # 验证 secret 创建
         echo "Verifying database-secret creation..."
-        kubectl get secret database-secret
+        kubectl get secret database-secret --namespace=user-register
         
-        # 创建 app-secret
+        # 创建 app-secret（指定命名空间）
         if [ -n "${{ secrets.APP_SECRET_KEY }}" ]; then
           echo "Using provided APP_SECRET_KEY"
           kubectl create secret generic app-secret \
+            --namespace=user-register \
             --from-literal=secret-key="${{ secrets.APP_SECRET_KEY }}"
         else
           echo "Generating random APP_SECRET_KEY"
           kubectl create secret generic app-secret \
+            --namespace=user-register \
             --from-literal=secret-key=$(openssl rand -hex 32)
         fi
         
-        echo "✅ Kubernetes secrets created"
+        echo "✅ Kubernetes secrets created in user-register namespace"
 
-    - name: Verify Secrets Content - THOROUGH
+    - name: Verify Secrets Content
       run: |
-        echo "🔍 Thoroughly verifying secret content..."
+        echo "🔍 Thoroughly verifying secret content in user-register namespace..."
         
         # 详细检查 secret 内容
         echo "=== Database Secret Full Details ==="
-        kubectl get secret database-secret -o yaml
+        kubectl get secret database-secret --namespace=user-register -o yaml
         
         echo "=== Database Secret Keys ==="
-        kubectl get secret database-secret -o jsonpath='{.data}' | jq -r 'keys[]'
+        kubectl get secret database-secret --namespace=user-register -o jsonpath='{.data}' | jq -r 'keys[]'
         
         echo "=== Database Secret Values (decoded) ==="
-        HOST=$(kubectl get secret database-secret -o jsonpath='{.data.host}' | base64 -d)
-        USERNAME=$(kubectl get secret database-secret -o jsonpath='{.data.username}' | base64 -d)
-        PASSWORD=$(kubectl get secret database-secret -o jsonpath='{.data.password}' | base64 -d)
+        HOST=$(kubectl get secret database-secret --namespace=user-register -o jsonpath='{.data.host}' | base64 -d)
+        USERNAME=$(kubectl get secret database-secret --namespace=user-register -o jsonpath='{.data.username}' | base64 -d)
+        PASSWORD=$(kubectl get secret database-secret --namespace=user-register -o jsonpath='{.data.password}' | base64 -d)
         
         echo "Host: $HOST"
         echo "Username: $USERNAME"
@@ -440,60 +476,82 @@ jobs:
 
     - name: Deploy Application Configurations
       run: |
-        echo "Deploying Kubernetes configurations..."
+        echo "Deploying Kubernetes configurations to user-register namespace..."
         
-        # Apply ConfigMap
-        kubectl apply -f k8s/configmap.yaml
+        # 检查 YAML 文件是否包含命名空间，如果没有则添加命名空间参数
+        echo "=== Applying Configurations ==="
+        
+        # Apply ConfigMap（如果 YAML 中没有指定命名空间，则添加 -n 参数）
+        if grep -q "namespace:" k8s/configmap.yaml; then
+          kubectl apply -f k8s/configmap.yaml
+        else
+          kubectl apply -f k8s/configmap.yaml -n user-register
+        fi
         
         # Apply Deployment with the new image
-        cat k8s/deployment.yaml | \
-          sed "s|USER_REGISTRATION_APP_IMAGE|${{ steps.build-image.outputs.image }}|g" | \
-          kubectl apply -f -
+        if grep -q "namespace:" k8s/deployment.yaml; then
+          cat k8s/deployment.yaml | \
+            sed "s|USER_REGISTRATION_APP_IMAGE|${{ steps.build-image.outputs.image }}|g" | \
+            kubectl apply -f -
+        else
+          cat k8s/deployment.yaml | \
+            sed "s|USER_REGISTRATION_APP_IMAGE|${{ steps.build-image.outputs.image }}|g" | \
+            kubectl apply -f - -n user-register
+        fi
         
         # Apply Service and Ingress
-        kubectl apply -f k8s/service.yaml
-        kubectl apply -f k8s/ingress.yaml
+        if grep -q "namespace:" k8s/service.yaml; then
+          kubectl apply -f k8s/service.yaml
+        else
+          kubectl apply -f k8s/service.yaml -n user-register
+        fi
         
-        echo "✅ All Kubernetes configurations deployed"
+        if grep -q "namespace:" k8s/ingress.yaml; then
+          kubectl apply -f k8s/ingress.yaml
+        else
+          kubectl apply -f k8s/ingress.yaml -n user-register
+        fi
+        
+        echo "✅ All Kubernetes configurations deployed to user-register namespace"
 
     - name: Wait for Application Deployment
       run: |
-        echo "Waiting for application deployment to complete..."
+        echo "Waiting for application deployment to complete in user-register namespace..."
         # 使用更长的超时时间
-        kubectl rollout status deployment/user-registration-app --timeout=600s
+        kubectl rollout status deployment/user-registration-app --namespace=user-register --timeout=600s
         echo "✅ Application deployment completed"
 
     - name: Verify Application Health
       run: |
-        echo "🔍 Verifying application health..."
+        echo "🔍 Verifying application health in user-register namespace..."
         
         # Check pods
         echo "--- Running Pods ==="
-        kubectl get pods -l app=user-registration-app -o wide
+        kubectl get pods --namespace=user-register -l app=user-registration-app -o wide
         
         # Check pod events and logs
-        PODS=$(kubectl get pods -l app=user-registration-app -o jsonpath='{.items[*].metadata.name}')
+        PODS=$(kubectl get pods --namespace=user-register -l app=user-registration-app -o jsonpath='{.items[*].metadata.name}')
         for POD in $PODS; do
           echo "--- Pod $POD Details ---"
-          kubectl describe pod $POD
+          kubectl describe pod $POD --namespace=user-register
           echo "--- Pod $POD Logs ---"
-          kubectl logs $POD --tail=50 || echo "No logs available"
+          kubectl logs $POD --namespace=user-register --tail=50 || echo "No logs available"
         done
         
         # Check services
         echo "--- Services ---"
-        kubectl get service user-registration-app-service
+        kubectl get service user-registration-app-service --namespace=user-register
         
         # Check ingress
         echo "--- Ingress ---"
-        kubectl get ingress user-registration-app-ingress
+        kubectl get ingress user-registration-app-ingress --namespace=user-register
         
         echo "✅ Application verification completed"
 
     - name: Get Application URL with ALB Wait
       id: url
       run: |
-        echo "🌐 Waiting for ALB provisioning..."
+        echo "🌐 Waiting for ALB provisioning in user-register namespace..."
         
         # 等待 ALB 创建（最长 10 分钟）
         echo "This may take 2-10 minutes..."
@@ -501,7 +559,7 @@ jobs:
         WAITED=0
         
         while [ $WAITED -lt $MAX_WAIT ]; do
-          INGRESS_HOST=$(kubectl get ingress user-registration-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          INGRESS_HOST=$(kubectl get ingress user-registration-app-ingress --namespace=user-register -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
           
           if [ -n "$INGRESS_HOST" ]; then
             echo "🎉 ALB Successfully Provisioned!"
@@ -521,7 +579,7 @@ jobs:
             
             # 显示 Ingress 状态
             echo "Current Ingress status:"
-            kubectl get ingress user-registration-app-ingress -o wide
+            kubectl get ingress user-registration-app-ingress --namespace=user-register -o wide
             
             # 显示 ALB Controller 日志（最后几行）
             echo "ALB Controller logs:"
@@ -535,11 +593,11 @@ jobs:
         if [ -z "$INGRESS_HOST" ]; then
           echo "❌ ALB not provisioned within $((MAX_WAIT/60)) minutes"
           echo "=== Debug Information ==="
-          kubectl describe ingress user-registration-app-ingress
-          kubectl get events --field-selector involvedObject.kind=Ingress --sort-by='.lastTimestamp'
+          kubectl describe ingress user-registration-app-ingress --namespace=user-register
+          kubectl get events --namespace=user-register --field-selector involvedObject.kind=Ingress --sort-by='.lastTimestamp'
           echo "=== ALB Controller Status ==="
           kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
-          echo "You can check later with: kubectl get ingress"
+          echo "You can check later with: kubectl get ingress -n user-register"
         fi
 
     - name: Provide Alternative Access Methods
@@ -548,11 +606,11 @@ jobs:
         echo "🔧 Alternative access methods:"
         echo ""
         echo "1. Port Forwarding (immediate access):"
-        echo "   kubectl port-forward svc/user-registration-app-service 8080:80"
+        echo "   kubectl port-forward svc/user-registration-app-service -n user-register 8080:80"
         echo "   Then visit: http://localhost:8080"
         echo ""
         echo "2. Check ALB status later:"
-        echo "   kubectl get ingress"
+        echo "   kubectl get ingress -n user-register"
         echo ""
         echo "3. Check ALB controller logs:"
         echo "   kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller"
@@ -576,7 +634,7 @@ jobs:
           echo "🌐 Application URL: ${{ steps.url.outputs.application_url }}"
         else
           echo "🌐 Application URL: Not available yet (ALB still provisioning)"
-          echo "   Use: kubectl port-forward svc/user-registration-app-service 8080:80"
+          echo "   Use: kubectl port-forward svc/user-registration-app-service -n user-register 8080:80"
           echo "   Then visit: http://localhost:8080"
         fi
         echo ""
