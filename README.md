@@ -32,4 +32,5 @@ I have written the full github actions
 - the UI for your reference
 ![应用界面](./u1.png)
 
+![应用界面](./u2.png)
 
