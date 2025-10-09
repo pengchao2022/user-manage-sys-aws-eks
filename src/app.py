@@ -119,7 +119,80 @@ def create_app():
 
         return render_template('register.html')
 
-    # 其他路由...
+    @app.route('/success')
+    def success():
+        return render_template('success.html')
+
+    @app.route('/users')
+    def users():
+        """Admin endpoint to view all registered users"""
+        conn = get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM users ORDER BY created_at DESC')
+                    users = cur.fetchall()
+                return render_template('users.html', users=users)
+            except Exception as e:
+                flash('Error retrieving users', 'error')
+                logger.error(f"Error: {e}")
+            finally:
+                conn.close()
+        return render_template('users.html', users=[])
+
+    # 添加健康检查端点 - 重要！
+    @app.route('/health')
+    def health():
+        """Health check endpoint with database check"""
+        try:
+            # 测试数据库连接
+            conn = get_db_connection(max_retries=1, retry_delay=1)
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT 1')
+                conn.close()
+                db_status = 'healthy'
+            else:
+                db_status = 'unhealthy'
+        except Exception as e:
+            logger.error(f"Health check database error: {e}")
+            db_status = 'unhealthy'
+
+        # 返回正确的状态码
+        if db_status == 'healthy':
+            return {
+                'status': 'healthy',
+                'database': db_status,
+                'timestamp': datetime.utcnow().isoformat()
+            }, 200
+        else:
+            return {
+                'status': 'unhealthy', 
+                'database': db_status,
+                'timestamp': datetime.utcnow().isoformat()
+            }, 503
+
+    # 可选：添加一个简单的健康检查端点
+    @app.route('/healthz')
+    def healthz():
+        """Simple health check endpoint"""
+        return {'status': 'ok', 'timestamp': datetime.utcnow().isoformat()}, 200
+
+    # 可选：添加就绪检查端点
+    @app.route('/ready')
+    def ready():
+        """Readiness check endpoint"""
+        try:
+            conn = get_db_connection(max_retries=1, retry_delay=1)
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT 1')
+                conn.close()
+                return {'status': 'ready', 'database': 'connected'}, 200
+            else:
+                return {'status': 'not ready', 'database': 'disconnected'}, 503
+        except Exception as e:
+            return {'status': 'not ready', 'error': str(e)}, 503
 
     return app
 
