@@ -1,39 +1,32 @@
-# EKS Cluster IAM Role（OIDC 配置）
+# 添加数据源来获取当前账户 ID
+data "aws_caller_identity" "current" {}
+
+# EKS Cluster IAM Role（正确的配置）
 resource "aws_iam_role" "eks_cluster" {
   name = "${var.cluster_name}-cluster"
 
   assume_role_policy = jsonencode({
     Statement = [{
-      Action = "sts:AssumeRoleWithWebIdentity"
+      Action = "sts:AssumeRole"
       Effect = "Allow"
       Principal = {
-        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}"
-      }
-      Condition = {
-        StringEquals = {
-          "oidc.eks.${var.aws_region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:eks-admin"
-        }
+        Service = "eks.amazonaws.com"  # EKS 服务作为主体
       }
     }]
     Version = "2012-10-17"
   })
 }
 
-# EKS Node Group IAM Role（OIDC 配置）
+# EKS Node Group IAM Role（正确的配置）
 resource "aws_iam_role" "eks_node_group" {
   name = "${var.cluster_name}-node-group"
 
   assume_role_policy = jsonencode({
     Statement = [{
-      Action = "sts:AssumeRoleWithWebIdentity"
+      Action = "sts:AssumeRole"
       Effect = "Allow"
       Principal = {
-        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/${var.cluster_oidc_issuer}"
-      }
-      Condition = {
-        StringEquals = {
-          "oidc.eks.${var.aws_region}.amazonaws.com/id/${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:kube-system:alb-ingress-controller"
-        }
+        Service = "ec2.amazonaws.com"  # EC2 服务作为主体
       }
     }]
     Version = "2012-10-17"
@@ -67,77 +60,105 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
   role       = aws_iam_role.eks_node_group.name
 }
 
-# 使用 ElasticLoadBalancingFullAccess 策略作为回退方案
+# 使用 ElasticLoadBalancingFullAccess 策略
 resource "aws_iam_role_policy_attachment" "alb_controller_fallback" {
   role       = aws_iam_role.eks_node_group.name
   policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
 }
 
-# 创建自定义 ALB Controller 策略（如果需要）
+# 创建完整的 ALB Controller 策略
 resource "aws_iam_policy" "alb_controller_policy" {
-  name        = "alb-controller-policy"
-  description = "Custom policy for ALB Controller"
+  name        = "${var.cluster_name}-alb-controller"
+  description = "Complete policy for ALB Controller"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Effect = "Allow"
         Action = [
+          # IAM 权限
+          "iam:CreateServiceLinkedRole",
+          # EC2 权限
+          "ec2:DescribeAccountAttributes",
+          "ec2:DescribeAddresses",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeInternetGateways",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeInstances",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeTags",
+          "ec2:GetCoipPoolUsage",
+          "ec2:DescribeCoipPools",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:CreateSecurityGroup",
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "ec2:DeleteSecurityGroup",
+          # ELB 权限
           "elasticloadbalancing:DescribeLoadBalancers",
-          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeLoadBalancerAttributes",
           "elasticloadbalancing:DescribeListeners",
-          "elasticloadbalancing:CreateTargetGroup",
+          "elasticloadbalancing:DescribeListenerCertificates",
+          "elasticloadbalancing:DescribeSSLPolicies",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetGroupAttributes",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:DescribeTags",
           "elasticloadbalancing:CreateLoadBalancer",
+          "elasticloadbalancing:CreateTargetGroup",
           "elasticloadbalancing:CreateListener",
-          "elasticloadbalancing:AddTags",
-          "elasticloadbalancing:DeleteTargetGroup",
-          "elasticloadbalancing:DeleteLoadBalancer",
           "elasticloadbalancing:DeleteListener",
-          "elasticloadbalancing:RemoveTags"
+          "elasticloadbalancing:CreateRule",
+          "elasticloadbalancing:DeleteRule",
+          "elasticloadbalancing:AddTags",
+          "elasticloadbalancing:RemoveTags",
+          "elasticloadbalancing:ModifyLoadBalancerAttributes",
+          "elasticloadbalancing:SetIpAddressType",
+          "elasticloadbalancing:SetSecurityGroups",
+          "elasticloadbalancing:SetSubnets",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:ModifyTargetGroup",
+          "elasticloadbalancing:ModifyTargetGroupAttributes",
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:RegisterTargets",
+          "elasticloadbalancing:DeregisterTargets",
+          "elasticloadbalancing:SetWebAcl",
+          "elasticloadbalancing:ModifyListener",
+          "elasticloadbalancing:AddListenerCertificates",
+          "elasticloadbalancing:RemoveListenerCertificates",
+          "elasticloadbalancing:ModifyRule",
+          # 其他服务权限
+          "cognito-idp:DescribeUserPoolClient",
+          "acm:ListCertificates",
+          "acm:DescribeCertificate",
+          "waf-regional:GetWebACL",
+          "waf-regional:GetWebACLForResource",
+          "waf-regional:AssociateWebACL",
+          "waf-regional:DisassociateWebACL",
+          "wafv2:GetWebACL",
+          "wafv2:GetWebACLForResource",
+          "wafv2:AssociateWebACL",
+          "wafv2:DisassociateWebACL",
+          "shield:GetSubscriptionState",
+          "shield:DescribeProtection",
+          "shield:CreateProtection",
+          "shield:DeleteProtection"
         ]
-        Effect   = "Allow"
         Resource = "*"
       }
     ]
   })
 }
 
-# 如果使用自定义策略，附加它
+# 附加自定义 ALB Controller 策略
 resource "aws_iam_role_policy_attachment" "alb_controller_custom" {
   policy_arn = aws_iam_policy.alb_controller_policy.arn
   role       = aws_iam_role.eks_node_group.name
-}
-
-# 为 EKS Node Group 角色添加额外的 ElasticLoadBalancing 权限，确保它可以进行 ALB 操作
-resource "aws_iam_role_policy_attachment" "eks_node_group_elb_permissions" {
-  role       = aws_iam_role.eks_node_group.name
-  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
-}
-
-# 为 EKS Node Group 角色添加 EC2 创建安全组的权限
-resource "aws_iam_policy" "ec2_create_security_group_policy" {
-  name        = "ec2-create-security-group-policy"
-  description = "Allow EKS Node Group to create EC2 Security Groups"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "ec2:CreateSecurityGroup",
-          "ec2:AuthorizeSecurityGroupIngress",
-          "ec2:AuthorizeSecurityGroupEgress"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "eks_node_group_create_security_group" {
-  role       = aws_iam_role.eks_node_group.name
-  policy_arn = aws_iam_policy.ec2_create_security_group_policy.arn
 }
 
 # 为 EKS Node Group 角色添加 VPC 相关权限
