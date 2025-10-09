@@ -13,9 +13,9 @@ body {
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 1400px;  /* 增加最大宽度 */
     margin: 0 auto;
-    padding: 20px;
+    padding: 30px;  /* 增加内边距 */
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -23,13 +23,14 @@ body {
 
 header {
     text-align: center;
-    margin-bottom: 30px;
+    margin-bottom: 40px;  /* 增加底部间距 */
 }
 
 header h1 {
     color: white;
-    font-size: 2.5rem;
+    font-size: 3rem;  /* 增大标题字体 */
     text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    margin-bottom: 10px;
 }
 
 main {
@@ -41,26 +42,27 @@ main {
 
 .registration-form, .success-message, .users-list {
     background: white;
-    padding: 40px;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    padding: 50px;  /* 增加内边距 */
+    border-radius: 15px;  /* 增大圆角 */
+    box-shadow: 0 15px 40px rgba(0,0,0,0.25);  /* 增强阴影 */
     width: 100%;
-    max-width: 600px;
+    max-width: 900px;  /* 显著增大最大宽度 */
 }
 
 h2 {
     color: #333;
-    margin-bottom: 30px;
+    margin-bottom: 40px;  /* 增加底部间距 */
     text-align: center;
+    font-size: 2.2rem;  /* 增大标题字体 */
 }
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 25px;  /* 增加表单项间距 */
 }
 
 .form-row {
     display: flex;
-    gap: 15px;
+    gap: 20px;  /* 增加列间距 */
 }
 
 .form-row .form-group {
@@ -69,19 +71,20 @@ h2 {
 
 label {
     display: block;
-    margin-bottom: 5px;
+    margin-bottom: 8px;  /* 增加标签底部间距 */
     font-weight: 600;
     color: #555;
+    font-size: 1.1rem;  /* 增大标签字体 */
 }
 
 input[type="text"],
 input[type="email"],
 input[type="tel"] {
     width: 100%;
-    padding: 12px;
+    padding: 15px;  /* 增加输入框内边距 */
     border: 2px solid #ddd;
-    border-radius: 5px;
-    font-size: 16px;
+    border-radius: 8px;  /* 增大圆角 */
+    font-size: 1.1rem;  /* 增大字体 */
     transition: border-color 0.3s;
 }
 
@@ -93,15 +96,16 @@ input[type="tel"]:focus {
 }
 
 .btn-primary, .btn-secondary {
-    padding: 12px 30px;
+    padding: 15px 35px;  /* 增大按钮内边距 */
     border: none;
-    border-radius: 5px;
-    font-size: 16px;
+    border-radius: 8px;  /* 增大圆角 */
+    font-size: 1.1rem;  /* 增大字体 */
     cursor: pointer;
     text-decoration: none;
     display: inline-block;
     text-align: center;
     transition: all 0.3s;
+    font-weight: 600;
 }
 
 .btn-primary {
@@ -113,6 +117,7 @@ input[type="tel"]:focus {
 .btn-primary:hover {
     background: #764ba2;
     transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
 .btn-secondary {
@@ -122,23 +127,25 @@ input[type="tel"]:focus {
 
 .btn-secondary:hover {
     background: #545b62;
+    transform: translateY(-2px);
 }
 
 .actions {
     display: flex;
-    gap: 10px;
+    gap: 15px;  /* 增加按钮间距 */
     justify-content: center;
-    margin-top: 20px;
+    margin-top: 30px;  /* 增加顶部间距 */
 }
 
 .flash-messages {
-    margin-bottom: 20px;
+    margin-bottom: 25px;  /* 增加底部间距 */
 }
 
 .flash {
-    padding: 15px;
-    border-radius: 5px;
-    margin-bottom: 10px;
+    padding: 20px;  /* 增加内边距 */
+    border-radius: 8px;  /* 增大圆角 */
+    margin-bottom: 15px;  /* 增加底部间距 */
+    font-size: 1.1rem;  /* 增大字体 */
 }
 
 .flash.success {
@@ -155,41 +162,123 @@ input[type="tel"]:focus {
 
 .links {
     text-align: center;
-    margin-top: 20px;
+    margin-top: 25px;  /* 增加顶部间距 */
 }
 
 .links a {
     color: #667eea;
     text-decoration: none;
+    font-size: 1.1rem;  /* 增大字体 */
 }
 
-table {
+/* 用户列表表格样式 */
+.users-list {
+    max-width: 1200px;  /* 用户列表页面更宽 */
+}
+
+.users-table-container {
+    overflow-x: auto;
+    margin: 25px 0;
+}
+
+.users-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 20px 0;
+    min-width: 1000px;  /* 确保表格足够宽 */
 }
 
-th, td {
-    padding: 12px;
+.users-table th,
+.users-table td {
+    padding: 16px 12px;  /* 增加表格单元格内边距 */
     text-align: left;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 2px solid #e9ecef;  /* 增强边框 */
+    font-size: 1.1rem;  /* 增大表格字体 */
 }
 
-th {
-    background-color: #f8f9fa;
+.users-table th {
+    background-color: #667eea;  /* 使用主题色 */
+    color: white;
     font-weight: 600;
+    font-size: 1.2rem;  /* 表头字体更大 */
+}
+
+.users-table tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* 特定列样式 */
+.email-column {
+    max-width: 250px;  /* 增加邮箱列宽度 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.company-column {
+    max-width: 200px;  /* 增加公司列宽度 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.timestamp-column {
+    max-width: 180px;  /* 增加时间戳列宽度 */
+    white-space: nowrap;
+}
+
+.phone-column {
+    max-width: 150px;  /* 增加电话列宽度 */
+    white-space: nowrap;
+}
+
+.name-column {
+    max-width: 150px;  /* 增加姓名列宽度 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 footer {
     text-align: center;
-    margin-top: 40px;
+    margin-top: 50px;  /* 增加顶部间距 */
     color: white;
+    font-size: 1.1rem;  /* 增大字体 */
 }
 
 @media (max-width: 768px) {
+    .container {
+        padding: 20px;
+        max-width: 100%;
+    }
+    
     .form-row {
         flex-direction: column;
         gap: 0;
+    }
+    
+    .registration-form, .success-message, .users-list {
+        padding: 30px;
+        max-width: 100%;
+    }
+    
+    header h1 {
+        font-size: 2.2rem;
+    }
+    
+    h2 {
+        font-size: 1.8rem;
+    }
+    
+    .users-table th,
+    .users-table td {
+        padding: 12px 8px;
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 15px;
     }
     
     .registration-form, .success-message, .users-list {
@@ -197,6 +286,17 @@ footer {
     }
     
     header h1 {
-        font-size: 2rem;
+        font-size: 1.8rem;
+    }
+    
+    h2 {
+        font-size: 1.5rem;
+    }
+    
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"] {
+        padding: 12px;
+        font-size: 1rem;
     }
 }
