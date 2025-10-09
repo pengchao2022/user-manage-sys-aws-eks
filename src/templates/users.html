@@ -3,11 +3,112 @@
 {% block title %}Registered Users{% endblock %}
 
 {% block content %}
+<style>
+    .users-list {
+        width: 100%;
+        overflow-x: auto;
+    }
+    
+    .users-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 800px; /* 确保表格有最小宽度 */
+    }
+    
+    .users-table th,
+    .users-table td {
+        padding: 12px 8px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+        white-space: nowrap; /* 防止文本换行 */
+    }
+    
+    .users-table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }
+    
+    /* 为特定列设置固定宽度和文本溢出处理 */
+    .email-column {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .company-column {
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .timestamp-column {
+        max-width: 150px;
+        white-space: nowrap;
+    }
+    
+    .phone-column {
+        max-width: 120px;
+        white-space: nowrap;
+    }
+    
+    .name-column {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .users-table tr:hover {
+        background-color: #f9f9f9;
+    }
+    
+    .actions {
+        margin-top: 20px;
+        text-align: center;
+    }
+    
+    .btn-primary {
+        display: inline-block;
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        transition: background-color 0.3s;
+    }
+    
+    .btn-primary:hover {
+        background-color: #0056b3;
+    }
+    
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+        .users-table {
+            font-size: 14px;
+        }
+        
+        .users-table th,
+        .users-table td {
+            padding: 8px 4px;
+        }
+        
+        .email-column {
+            max-width: 150px;
+        }
+        
+        .company-column {
+            max-width: 100px;
+        }
+    }
+</style>
+
 <div class="users-list">
     <h2>Registered Users</h2>
     
     {% if users %}
-        <table>
+        <table class="users-table">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -23,18 +124,18 @@
                 {% for user in users %}
                 <tr>
                     <td>{{ user[0] }}</td>
-                    <td>{{ user[1] }}</td>
-                    <td>{{ user[2] }}</td>
-                    <td>{{ user[3] }}</td>
-                    <td>{{ user[4] or 'N/A' }}</td>
-                    <td>{{ user[5] or 'N/A' }}</td>
-                    <td>{{ user[6].strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td class="email-column" title="{{ user[1] }}">{{ user[1] }}</td>
+                    <td class="name-column" title="{{ user[2] }}">{{ user[2] }}</td>
+                    <td class="name-column" title="{{ user[3] }}">{{ user[3] }}</td>
+                    <td class="phone-column">{{ user[4] or 'N/A' }}</td>
+                    <td class="company-column" title="{{ user[5] or 'N/A' }}">{{ user[5] or 'N/A' }}</td>
+                    <td class="timestamp-column">{{ user[6].strftime('%Y-%m-%d %H:%M') }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% else %}
-        <p>No users registered yet.</p>
+        <p style="text-align: center; padding: 20px; color: #666;">No users registered yet.</p>
     {% endif %}
     
     <div class="actions">
